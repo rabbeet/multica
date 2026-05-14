@@ -68,10 +68,19 @@ func normalize(s string) string {
 	return string(out)
 }
 
+// agentBranchRegex matches the looser "any agent-driven branch"
+// shape used by the scope filter. Unlike branchRegex, this does not
+// require a `<PREFIX-N>` segment after the agent prefix — the scope
+// filter only confirms "yes, an agent owns this branch", regardless
+// of whether an identifier can be extracted. Identifier extraction
+// is branchRegex's job and is intentionally stricter.
+var agentBranchRegex = regexp.MustCompile(`^agent-[0-9a-zA-Z]+/`)
+
 // InScope reports whether a PR title + branch combination satisfies
 // the cascade scope filter (C4): only agent-driven PRs trigger the
 // pipeline. A PR is in-scope when either the title carries a
-// `[PREFIX-N]` bracket OR the branch starts with `agent-<id>/`.
+// `[PREFIX-N]` bracket OR the branch starts with `agent-<id>/`
+// (regardless of what follows the slash).
 //
 // Manual user PRs (no agent branch, no bracket prefix) return false
 // — webhook handler logs them and skips. The filter lives here, not
@@ -80,7 +89,7 @@ func InScope(prTitle, branch string) bool {
 	if titleRegex.MatchString(prTitle) {
 		return true
 	}
-	if branchRegex.MatchString(branch) {
+	if agentBranchRegex.MatchString(branch) {
 		return true
 	}
 	return false
