@@ -27,6 +27,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -229,9 +230,18 @@ func (s *Source) normalizeWorkflowRun(ctx context.Context, body []byte, delivery
 	// back to a commits/{sha}/pulls API lookup when a resolver is
 	// configured; without it, preserve the original skip behavior so
 	// dev / test deployments that omit the API token still build.
+	//
+	// The truncated PR object on workflow_run.pull_requests carries
+	// `id`, `number`, `url` (API URL), `head`, `base` — but NOT
+	// `html_url`. Construct the browser URL ourselves from
+	// repository.full_name + /pull/<number> so the cascade row gets a
+	// usable pr_url. (GitHub's HTML URL pattern is stable.)
 	prs := make([]PRRef, 0, len(p.WorkflowRun.PullRequests))
 	for _, pr := range p.WorkflowRun.PullRequests {
-		prs = append(prs, PRRef{Number: int(pr.Number), HTMLURL: pr.HTMLURL})
+		prs = append(prs, PRRef{
+			Number:  int(pr.Number),
+			HTMLURL: htmlURLForPR(p.Repository.FullName, int(pr.Number)),
+		})
 	}
 	if len(prs) == 0 && s.cfg.Resolver != nil {
 		resolved, err := s.cfg.Resolver.LookupPRsByCommit(ctx, p.Repository.FullName, p.WorkflowRun.HeadSHA)
@@ -301,11 +311,16 @@ func (s *Source) normalizeCheckRun(ctx context.Context, body []byte, deliveryID 
 	}
 
 	// Same payload quirk as workflow_run — check_run.pull_requests is
-	// frequently empty for same-repo PR runs. Fall back to the API
-	// lookup when configured.
+	// frequently empty for same-repo PR runs, and even when populated
+	// the truncated PR object omits html_url. Construct the browser
+	// URL from repository.full_name; fall back to the API lookup when
+	// the array is empty and a resolver is configured.
 	prs := make([]PRRef, 0, len(p.CheckRun.PullRequests))
 	for _, pr := range p.CheckRun.PullRequests {
-		prs = append(prs, PRRef{Number: int(pr.Number), HTMLURL: pr.HTMLURL})
+		prs = append(prs, PRRef{
+			Number:  int(pr.Number),
+			HTMLURL: htmlURLForPR(p.Repository.FullName, int(pr.Number)),
+		})
 	}
 	if len(prs) == 0 && s.cfg.Resolver != nil {
 		resolved, err := s.cfg.Resolver.LookupPRsByCommit(ctx, p.Repository.FullName, p.CheckRun.HeadSHA)
@@ -476,6 +491,19 @@ func FromEnv(getenv func(string) string) *Source {
 		cfg.Resolver = NewHTTPResolver(token)
 	}
 	return New(cfg)
+}
+
+// htmlURLForPR builds the public PR URL from repository.full_name and
+// the PR number. The truncated PR object that GitHub embeds in
+// workflow_run / check_run payloads carries `url` (API endpoint) and
+// `number` but omits `html_url`, so the adapter has to assemble it.
+// Returns "" when either input is empty / zero so the caller's
+// schema_mismatch sentinel still fires loudly on degenerate inputs.
+func htmlURLForPR(repoFullName string, number int) string {
+	if repoFullName == "" || number <= 0 {
+		return ""
+	}
+	return "https://github.com/" + repoFullName + "/pull/" + strconv.Itoa(number)
 }
 
 // ensure interface satisfaction at compile time.
