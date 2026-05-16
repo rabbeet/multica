@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,25 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/webhooks"
 )
+
+// fakeResolver is a PRResolver test double. The fields drive the
+// next LookupPRsByCommit return, and call counters let tests assert
+// the adapter only invoked the resolver in the expected fallback
+// path.
+type fakeResolver struct {
+	prs    []PRRef
+	err    error
+	calls  int
+	lastRepo string
+	lastSHA  string
+}
+
+func (f *fakeResolver) LookupPRsByCommit(_ context.Context, repo, sha string) ([]PRRef, error) {
+	f.calls++
+	f.lastRepo = repo
+	f.lastSHA = sha
+	return f.prs, f.err
+}
 
 // makeReq builds a *http.Request with the GitHub-canonical headers
 // the adapter requires. Tests override specific headers/body via the
@@ -329,4 +349,185 @@ func TestFromEnv_PresentAndAbsent(t *testing.T) {
 			t.Fatalf("Secrets = (%q, %q), want (new, old)", c, p)
 		}
 	})
+
+	t.Run("api token wires resolver", func(t *testing.T) {
+		got := FromEnv(func(k string) string {
+			switch k {
+			case "MULTICA_GITHUB_WEBHOOK_SECRET_CURRENT":
+				return "s"
+			case "MULTICA_GITHUB_API_TOKEN":
+				return "ghp_test"
+			}
+			return ""
+		})
+		if got == nil || got.cfg.Resolver == nil {
+			t.Fatalf("expected resolver to be wired when API token is set")
+		}
+	})
+
+	t.Run("no api token leaves resolver nil", func(t *testing.T) {
+		got := FromEnv(func(k string) string {
+			if k == "MULTICA_GITHUB_WEBHOOK_SECRET_CURRENT" {
+				return "s"
+			}
+			return ""
+		})
+		if got.cfg.Resolver != nil {
+			t.Fatalf("expected resolver nil when API token absent, got %T", got.cfg.Resolver)
+		}
+	})
+}
+
+// emptyPRsWorkflowRunBody is a workflow_run payload mirroring the
+// GitHub quirk we're fixing: failure conclusion + valid head_sha +
+// repo, but pull_requests is an empty array.
+const emptyPRsWorkflowRunBody = `{
+    "action": "completed",
+    "workflow_run": {
+        "conclusion": "failure",
+        "head_sha": "d89b92ec",
+        "head_branch": "agent-2/pul-143-cascade-smoke",
+        "pull_requests": []
+    },
+    "repository": {"full_name": "rabbeet/Pulse"}
+}`
+
+func TestNormalize_WorkflowRun_EmptyPRs_NoResolverSkips(t *testing.T) {
+	// Pre-fix behavior preserved when no resolver wired (dev / tests
+	// without MULTICA_GITHUB_API_TOKEN). Same-repo PR runs with
+	// empty pull_requests continue to drop on 204.
+	s := New(Config{SecretCurrent: "x"})
+	if _, err := s.Normalize(makeReq("workflow_run", emptyPRsWorkflowRunBody)); !errors.Is(err, webhooks.ErrUnsupportedEvent) {
+		t.Fatalf("no resolver: err = %v, want ErrUnsupportedEvent", err)
+	}
+}
+
+func TestNormalize_WorkflowRun_EmptyPRs_ResolverHitsOne(t *testing.T) {
+	// The fix path: payload pull_requests is empty, resolver finds
+	// exactly one open PR, adapter forwards it as a normal event.
+	resolver := &fakeResolver{
+		prs: []PRRef{{
+			Number:  498,
+			HTMLURL: "https://github.com/rabbeet/Pulse/pull/498",
+			Title:   "[PUL-143] cascade smoke",
+			Ref:     "agent-2/pul-143-cascade-smoke",
+		}},
+	}
+	s := New(Config{SecretCurrent: "x", Resolver: resolver})
+	evt, err := s.Normalize(makeReq("workflow_run", emptyPRsWorkflowRunBody))
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if resolver.calls != 1 || resolver.lastRepo != "rabbeet/Pulse" || resolver.lastSHA != "d89b92ec" {
+		t.Errorf("resolver call mismatch: calls=%d repo=%q sha=%q", resolver.calls, resolver.lastRepo, resolver.lastSHA)
+	}
+	if evt.PRNumber != 498 {
+		t.Errorf("PRNumber = %d, want 498", evt.PRNumber)
+	}
+	if evt.PRURL != "https://github.com/rabbeet/Pulse/pull/498" {
+		t.Errorf("PRURL = %q", evt.PRURL)
+	}
+	if evt.PRTitle != "[PUL-143] cascade smoke" {
+		t.Errorf("PRTitle = %q", evt.PRTitle)
+	}
+	if evt.Branch != "agent-2/pul-143-cascade-smoke" {
+		t.Errorf("Branch = %q", evt.Branch)
+	}
+	if evt.HeadSHA != "d89b92ec" {
+		t.Errorf("HeadSHA = %q", evt.HeadSHA)
+	}
+}
+
+func TestNormalize_WorkflowRun_EmptyPRs_ResolverEmptySkips(t *testing.T) {
+	// Resolver returned zero PRs — the commit really has no
+	// open PR (push on default branch). 204 silently.
+	resolver := &fakeResolver{prs: nil}
+	s := New(Config{SecretCurrent: "x", Resolver: resolver})
+	if _, err := s.Normalize(makeReq("workflow_run", emptyPRsWorkflowRunBody)); !errors.Is(err, webhooks.ErrUnsupportedEvent) {
+		t.Fatalf("empty resolver result: err = %v, want ErrUnsupportedEvent", err)
+	}
+	if resolver.calls != 1 {
+		t.Errorf("expected 1 resolver call, got %d", resolver.calls)
+	}
+}
+
+func TestNormalize_WorkflowRun_EmptyPRs_ResolverMultipleSkips(t *testing.T) {
+	// Same multi-PR semantics as the inline path: cascade does not
+	// handle commits attached to multiple open PRs.
+	resolver := &fakeResolver{prs: []PRRef{
+		{Number: 1, HTMLURL: "u1"},
+		{Number: 2, HTMLURL: "u2"},
+	}}
+	s := New(Config{SecretCurrent: "x", Resolver: resolver})
+	if _, err := s.Normalize(makeReq("workflow_run", emptyPRsWorkflowRunBody)); !errors.Is(err, webhooks.ErrUnsupportedEvent) {
+		t.Fatalf("multi-PR resolver: err = %v, want ErrUnsupportedEvent", err)
+	}
+}
+
+func TestNormalize_WorkflowRun_EmptyPRs_ResolverErrorSkips(t *testing.T) {
+	// Transient GitHub API failure during fallback — adapter logs
+	// and drops the event (we do not 400 / retry, since GitHub
+	// will redeliver on 5xx and the next delivery may succeed).
+	resolver := &fakeResolver{err: errors.New("boom")}
+	s := New(Config{SecretCurrent: "x", Resolver: resolver})
+	if _, err := s.Normalize(makeReq("workflow_run", emptyPRsWorkflowRunBody)); !errors.Is(err, webhooks.ErrUnsupportedEvent) {
+		t.Fatalf("resolver error: err = %v, want ErrUnsupportedEvent", err)
+	}
+}
+
+func TestNormalize_WorkflowRun_PopulatedPRs_SkipsResolver(t *testing.T) {
+	// Resolver must NOT be called when the payload already carries
+	// the PR inline — both for latency and to keep the GitHub API
+	// rate-limit budget intact.
+	body := `{
+        "action": "completed",
+        "workflow_run": {
+            "conclusion": "failure",
+            "head_sha": "abc",
+            "head_branch": "b",
+            "pull_requests": [{"number": 1, "html_url": "u"}]
+        },
+        "repository": {"full_name": "o/r"}
+    }`
+	resolver := &fakeResolver{prs: []PRRef{{Number: 99, HTMLURL: "should-not-be-used"}}}
+	s := New(Config{SecretCurrent: "x", Resolver: resolver})
+	evt, err := s.Normalize(makeReq("workflow_run", body))
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if resolver.calls != 0 {
+		t.Errorf("resolver invoked unnecessarily: calls=%d", resolver.calls)
+	}
+	if evt.PRNumber != 1 {
+		t.Errorf("inline PR overridden: PRNumber = %d, want 1", evt.PRNumber)
+	}
+}
+
+func TestNormalize_CheckRun_EmptyPRs_ResolverHitsOne(t *testing.T) {
+	// Mirror of the workflow_run fallback for check_run events.
+	body := `{
+        "action": "completed",
+        "check_run": {
+            "conclusion": "failure",
+            "head_sha": "sha2",
+            "html_url": "https://github.com/o/r/runs/1",
+            "pull_requests": []
+        },
+        "repository": {"full_name": "o/r"}
+    }`
+	resolver := &fakeResolver{prs: []PRRef{{
+		Number: 7, HTMLURL: "https://github.com/o/r/pull/7",
+		Title: "[PUL-7] x", Ref: "agent-1/pul-7-x",
+	}}}
+	s := New(Config{SecretCurrent: "x", Resolver: resolver})
+	evt, err := s.Normalize(makeReq("check_run", body))
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if resolver.calls != 1 || resolver.lastSHA != "sha2" {
+		t.Errorf("resolver call mismatch: calls=%d sha=%q", resolver.calls, resolver.lastSHA)
+	}
+	if evt.PRNumber != 7 || evt.Branch != "agent-1/pul-7-x" || evt.PRTitle != "[PUL-7] x" {
+		t.Errorf("unexpected event: %+v", evt)
+	}
 }

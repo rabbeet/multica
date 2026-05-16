@@ -77,7 +77,8 @@ func startCascadeBackground(pool *pgxpool.Pool, queries *db.Queries, taskSvc *se
 
 	logger.Info("cascade.wiring.started",
 		"workspace_id", workspaceID,
-		"github_real_adapter", os.Getenv("MULTICA_GITHUB_WEBHOOK_SECRET_CURRENT") != "")
+		"github_real_adapter", os.Getenv("MULTICA_GITHUB_WEBHOOK_SECRET_CURRENT") != "",
+		"github_pr_resolver", os.Getenv("MULTICA_GITHUB_API_TOKEN") != "")
 }
 
 // cascadeFlagEnabled mirrors webhooks.envEnabled but lives in main

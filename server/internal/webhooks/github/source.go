@@ -21,9 +21,11 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -70,6 +72,39 @@ type Config struct {
 	// 24h so in-flight retries from GitHub still verify after a key
 	// rotation. May be empty in steady state.
 	SecretPrevious string
+
+	// Resolver, when non-nil, supplies a fallback PR lookup for
+	// workflow_run / check_run deliveries that arrive with an empty
+	// pull_requests array. GitHub frequently omits the array even for
+	// same-repo PR-attached runs (the data is only populated for a
+	// narrow set of fork/security scenarios), so without this fallback
+	// the adapter silently drops every CI-failure cascade event whose
+	// run is a same-repo PR run. nil disables the fallback — the
+	// adapter then keeps the pre-fallback behavior (skip on empty).
+	Resolver PRResolver
+
+	// Logger is used for fallback-path warnings (resolver errors,
+	// 0 / >1 PR responses). nil falls back to slog.Default().
+	Logger *slog.Logger
+}
+
+// PRRef is the minimal PR shape the fallback resolver needs to return.
+// Mirrors the fields workflow_run / check_run normally carry inline
+// when GitHub populates pull_requests.
+type PRRef struct {
+	Number  int
+	HTMLURL string
+	Title   string
+	Ref     string // head ref / branch name
+}
+
+// PRResolver resolves the set of PRs that a commit SHA belongs to.
+// Implemented in production by HTTPResolver (GitHub REST API); tests
+// substitute a fake. Returning an empty slice means "no PRs match
+// this SHA" (e.g. push on the default branch) — distinct from an
+// error, which means "lookup failed, try again later".
+type PRResolver interface {
+	LookupPRsByCommit(ctx context.Context, repoFullName, headSHA string) ([]PRRef, error)
 }
 
 // Source implements webhooks.Source for GitHub.
@@ -93,6 +128,13 @@ func (s *Source) Secrets() (string, string) {
 	return s.cfg.SecretCurrent, s.cfg.SecretPrevious
 }
 
+func (s *Source) logger() *slog.Logger {
+	if s.cfg.Logger != nil {
+		return s.cfg.Logger
+	}
+	return slog.Default()
+}
+
 // Normalize parses the incoming GitHub webhook and produces a
 // TriggerEvent. Validates schema by requiring the fields the cascade
 // pipeline reads. Anything missing → ErrSchemaMismatch. Success /
@@ -114,9 +156,9 @@ func (s *Source) Normalize(r *http.Request) (*webhooks.TriggerEvent, error) {
 
 	switch eventType {
 	case "workflow_run":
-		return s.normalizeWorkflowRun(body, deliveryID)
+		return s.normalizeWorkflowRun(r.Context(), body, deliveryID)
 	case "check_run":
-		return s.normalizeCheckRun(body, deliveryID)
+		return s.normalizeCheckRun(r.Context(), body, deliveryID)
 	case "pull_request":
 		return s.normalizePullRequest(body, deliveryID)
 	case "pull_request_review":
@@ -164,7 +206,7 @@ type workflowRunPayload struct {
 	} `json:"repository"`
 }
 
-func (s *Source) normalizeWorkflowRun(body []byte, deliveryID string) (*webhooks.TriggerEvent, error) {
+func (s *Source) normalizeWorkflowRun(ctx context.Context, body []byte, deliveryID string) (*webhooks.TriggerEvent, error) {
 	var p workflowRunPayload
 	if err := json.Unmarshal(body, &p); err != nil {
 		return nil, fmt.Errorf("%w: %v", webhooks.ErrSchemaMismatch, err)
@@ -180,29 +222,50 @@ func (s *Source) normalizeWorkflowRun(body []byte, deliveryID string) (*webhooks
 	if p.WorkflowRun.HeadSHA == "" || p.Repository.FullName == "" {
 		return nil, fmt.Errorf("%w: workflow_run missing head_sha or repository.full_name", webhooks.ErrSchemaMismatch)
 	}
-	// workflow_run events can carry zero, one, or many PRs in the
-	// pull_requests array. Cascade only reacts when exactly one PR
-	// is involved — anything else (fork PR, no-PR push run) skips.
-	if len(p.WorkflowRun.PullRequests) != 1 {
+
+	// GitHub frequently delivers workflow_run with pull_requests=[]
+	// even when the run is attached to a same-repo PR (the array is
+	// only populated in a narrow set of fork/security contexts). Fall
+	// back to a commits/{sha}/pulls API lookup when a resolver is
+	// configured; without it, preserve the original skip behavior so
+	// dev / test deployments that omit the API token still build.
+	prs := make([]PRRef, 0, len(p.WorkflowRun.PullRequests))
+	for _, pr := range p.WorkflowRun.PullRequests {
+		prs = append(prs, PRRef{Number: int(pr.Number), HTMLURL: pr.HTMLURL})
+	}
+	if len(prs) == 0 && s.cfg.Resolver != nil {
+		resolved, err := s.cfg.Resolver.LookupPRsByCommit(ctx, p.Repository.FullName, p.WorkflowRun.HeadSHA)
+		if err != nil {
+			s.logger().Warn("webhooks.github.workflow_run.pr_lookup_failed",
+				"repo", p.Repository.FullName,
+				"head_sha", p.WorkflowRun.HeadSHA,
+				"error", err,
+			)
+			return nil, webhooks.ErrUnsupportedEvent
+		}
+		prs = resolved
+	}
+	if len(prs) != 1 {
 		return nil, webhooks.ErrUnsupportedEvent
 	}
-	pr := p.WorkflowRun.PullRequests[0]
+	pr := prs[0]
 	if pr.HTMLURL == "" || pr.Number == 0 {
 		return nil, fmt.Errorf("%w: workflow_run.pull_requests missing html_url or number", webhooks.ErrSchemaMismatch)
+	}
+	branch := p.WorkflowRun.HeadBranch
+	if branch == "" {
+		// API fallback returns the head ref; use it when the payload
+		// omits head_branch (rare, but check_run shares this path).
+		branch = pr.Ref
 	}
 	return &webhooks.TriggerEvent{
 		EventID:   EventID(deliveryID),
 		EventType: webhooks.EventTypeCIFailure,
 		PRURL:     pr.HTMLURL,
-		PRNumber:  int(pr.Number),
-		// workflow_run does not carry the PR title or branch
-		// directly on the top-level payload. PR lookup uses head_sha
-		// + repo via the worker's GitHub API call (PR4 G5 state
-		// validation also hits the API for the same row), so
-		// leaving these blank is fine — the worker fetches them.
-		PRTitle: "",
-		HeadSHA: p.WorkflowRun.HeadSHA,
-		Branch:  p.WorkflowRun.HeadBranch,
+		PRNumber:  pr.Number,
+		PRTitle:   pr.Title, // empty for inline-payload PRs; populated by resolver
+		HeadSHA:   p.WorkflowRun.HeadSHA,
+		Branch:    branch,
 	}, nil
 }
 
@@ -222,7 +285,7 @@ type checkRunPayload struct {
 	} `json:"repository"`
 }
 
-func (s *Source) normalizeCheckRun(body []byte, deliveryID string) (*webhooks.TriggerEvent, error) {
+func (s *Source) normalizeCheckRun(ctx context.Context, body []byte, deliveryID string) (*webhooks.TriggerEvent, error) {
 	var p checkRunPayload
 	if err := json.Unmarshal(body, &p); err != nil {
 		return nil, fmt.Errorf("%w: %v", webhooks.ErrSchemaMismatch, err)
@@ -236,10 +299,30 @@ func (s *Source) normalizeCheckRun(body []byte, deliveryID string) (*webhooks.Tr
 	if p.CheckRun.HeadSHA == "" || p.Repository.FullName == "" {
 		return nil, fmt.Errorf("%w: check_run missing head_sha or repository.full_name", webhooks.ErrSchemaMismatch)
 	}
-	if len(p.CheckRun.PullRequests) != 1 {
+
+	// Same payload quirk as workflow_run — check_run.pull_requests is
+	// frequently empty for same-repo PR runs. Fall back to the API
+	// lookup when configured.
+	prs := make([]PRRef, 0, len(p.CheckRun.PullRequests))
+	for _, pr := range p.CheckRun.PullRequests {
+		prs = append(prs, PRRef{Number: int(pr.Number), HTMLURL: pr.HTMLURL})
+	}
+	if len(prs) == 0 && s.cfg.Resolver != nil {
+		resolved, err := s.cfg.Resolver.LookupPRsByCommit(ctx, p.Repository.FullName, p.CheckRun.HeadSHA)
+		if err != nil {
+			s.logger().Warn("webhooks.github.check_run.pr_lookup_failed",
+				"repo", p.Repository.FullName,
+				"head_sha", p.CheckRun.HeadSHA,
+				"error", err,
+			)
+			return nil, webhooks.ErrUnsupportedEvent
+		}
+		prs = resolved
+	}
+	if len(prs) != 1 {
 		return nil, webhooks.ErrUnsupportedEvent
 	}
-	pr := p.CheckRun.PullRequests[0]
+	pr := prs[0]
 	if pr.HTMLURL == "" || pr.Number == 0 {
 		return nil, fmt.Errorf("%w: check_run.pull_requests missing html_url or number", webhooks.ErrSchemaMismatch)
 	}
@@ -247,8 +330,10 @@ func (s *Source) normalizeCheckRun(body []byte, deliveryID string) (*webhooks.Tr
 		EventID:   EventID(deliveryID),
 		EventType: webhooks.EventTypeCIFailure,
 		PRURL:     pr.HTMLURL,
-		PRNumber:  int(pr.Number),
+		PRNumber:  pr.Number,
+		PRTitle:   pr.Title,
 		HeadSHA:   p.CheckRun.HeadSHA,
+		Branch:    pr.Ref,
 	}, nil
 }
 
@@ -373,13 +458,24 @@ func (s *Source) normalizePullRequestReview(body []byte, deliveryID string) (*we
 // Helper exists so webhooks.MountFromEnv can decide at registration
 // time whether to wire the real adapter or leave the stub in place
 // (e.g. dev box without GitHub App configured).
+//
+// When MULTICA_GITHUB_API_TOKEN is also set, the adapter installs a
+// PRResolver that backfills empty workflow_run / check_run
+// pull_requests via the commits/{sha}/pulls REST endpoint. Without
+// the token the fallback is disabled and same-repo PR runs whose
+// payload omits pull_requests are silently dropped (the pre-fix
+// behavior).
 func FromEnv(getenv func(string) string) *Source {
 	current := strings.TrimSpace(getenv("MULTICA_GITHUB_WEBHOOK_SECRET_CURRENT"))
 	if current == "" {
 		return nil
 	}
 	previous := strings.TrimSpace(getenv("MULTICA_GITHUB_WEBHOOK_SECRET_PREVIOUS"))
-	return New(Config{SecretCurrent: current, SecretPrevious: previous})
+	cfg := Config{SecretCurrent: current, SecretPrevious: previous}
+	if token := strings.TrimSpace(getenv("MULTICA_GITHUB_API_TOKEN")); token != "" {
+		cfg.Resolver = NewHTTPResolver(token)
+	}
+	return New(cfg)
 }
 
 // ensure interface satisfaction at compile time.
