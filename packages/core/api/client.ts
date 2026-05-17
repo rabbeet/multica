@@ -82,6 +82,8 @@ import type {
   ListAutopilotRunsResponse,
   NotificationPreferenceResponse,
   NotificationPreferences,
+  IssueReminder,
+  CreateReminderRequest,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import { type Logger, noopLogger } from "../logger";
@@ -1265,5 +1267,22 @@ export class ApiClient {
 
   async deleteAutopilotTrigger(autopilotId: string, triggerId: string): Promise<void> {
     await this.fetch(`/api/autopilots/${autopilotId}/triggers/${triggerId}`, { method: "DELETE" });
+  }
+
+  // PUL-154: «Wake up in N» reminders.
+
+  async createReminder(issueId: string, data: CreateReminderRequest): Promise<IssueReminder> {
+    return this.fetch(`/api/issues/${issueId}/reminders`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listPendingReminders(issueId: string): Promise<IssueReminder[]> {
+    return this.fetch(`/api/issues/${issueId}/reminders`);
+  }
+
+  async cancelReminder(reminderId: string): Promise<IssueReminder> {
+    return this.fetch(`/api/reminders/${reminderId}`, { method: "DELETE" });
   }
 }

@@ -664,6 +664,40 @@ export function useRealtimeSync(
       }
     });
 
+    // PUL-154: reminder events. Granularity is per-issue because the
+    // pending-reminder cache is keyed on (wsId, issueId). The fired event
+    // also touches the issue list cache when its payload signals a
+    // status_transition (waiting/backlog → todo flip); the existing
+    // issue:updated event ALSO arrives for the flipped issue, so the
+    // invalidate here is a belt-and-suspenders update.
+    const invalidateReminders = (issueId: string) => {
+      const wsId = getCurrentWsId();
+      if (!wsId) return;
+      qc.invalidateQueries({ queryKey: ["reminders", wsId, "issue", issueId] });
+    };
+
+    const unsubReminderCreated = ws.on("reminder:created", (p) => {
+      const { reminder } = p as { reminder?: { issue_id: string } };
+      if (reminder?.issue_id) invalidateReminders(reminder.issue_id);
+    });
+    const unsubReminderFired = ws.on("reminder:fired", (p) => {
+      const { issue_id, status_transition } = p as {
+        issue_id?: string;
+        status_transition?: { from: string; to: string } | null;
+      };
+      if (!issue_id) return;
+      invalidateReminders(issue_id);
+      // Comment timeline already invalidates via the comment:created event
+      // emitted by the same CommentService.Create call. If a flip happened,
+      // the issue:updated event will refresh the issue caches; nothing
+      // extra to do here.
+      void status_transition;
+    });
+    const unsubReminderCancelled = ws.on("reminder:cancelled", (p) => {
+      const { reminder } = p as { reminder?: { issue_id: string } };
+      if (reminder?.issue_id) invalidateReminders(reminder.issue_id);
+    });
+
     return () => {
       unsubAny();
       unsubIssueUpdated();
@@ -688,6 +722,9 @@ export function useRealtimeSync(
       unsubInvitationAccepted();
       unsubInvitationDeclined();
       unsubInvitationRevoked();
+      unsubReminderCreated();
+      unsubReminderFired();
+      unsubReminderCancelled();
       unsubTaskMessage();
       unsubChatMessage();
       unsubChatDone();

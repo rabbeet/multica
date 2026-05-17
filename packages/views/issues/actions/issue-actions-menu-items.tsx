@@ -7,6 +7,7 @@ import {
   ArrowDown,
   ArrowUp,
   Calendar,
+  Clock,
   FolderOpen,
   Link2,
   MoreHorizontal,
@@ -24,6 +25,7 @@ import {
   PRIORITY_CONFIG,
 } from "@multica/core/issues/config";
 import { issueKeys } from "@multica/core/issues/queries";
+import { presetsForNow, useCreateReminder } from "@multica/core/reminders";
 import { StatusIcon } from "../components/status-icon";
 import { PriorityIcon } from "../components/priority-icon";
 import { ActorAvatar } from "../../common/actor-avatar";
@@ -122,6 +124,13 @@ export function IssueActionsMenuItems({
     queryFn: () => api.listTasksByIssue(issue.id),
     staleTime: 30_000,
   });
+
+  // PUL-154: smart-preset list is recomputed each render so the labels
+  // ("Tomorrow 09:00", etc.) stay correct as the user keeps the menu open
+  // across the midnight rollover. The presets themselves are pure
+  // (presetsForNow does no IO), so this is cheap.
+  const createReminder = useCreateReminder(issue.id);
+  const reminderPresets = presetsForNow(new Date());
 
   // Synchronous click handler — the awaited fetch in the previous version
   // dropped the browser's transient user activation, which made
@@ -281,6 +290,44 @@ export function IssueActionsMenuItems({
       </P.Item>
 
       <P.Separator />
+
+      {/* PUL-154: «Wake up in N» — one-shot reminders. The submenu shows
+          four smart presets keyed to the local time of day; the absolute
+          fire_at is computed client-side and sent to the server as UTC ISO.
+          TODO(follow-up): "Custom..." row that opens a date+time picker
+          modal, plus an i18n bundle for the labels. Hardcoded English for
+          v1 because the dropdown ships with English defaults elsewhere. */}
+      <P.Sub>
+        <P.SubTrigger>
+          <Clock className="h-3.5 w-3.5" />
+          {"Wake up in..."}
+        </P.SubTrigger>
+        <P.SubContent>
+          {reminderPresets.map((p) => (
+            <P.Item
+              key={p.key}
+              onClick={() => {
+                createReminder.mutate(
+                  { fire_at: p.fireAt.toISOString() },
+                  {
+                    onSuccess: () => {
+                      toast.success(`Wake-up set for ${p.label.toLowerCase()}`);
+                    },
+                    onError: (err) => {
+                      toast.error(
+                        err instanceof Error ? err.message : "Failed to set wake-up",
+                      );
+                    },
+                  },
+                );
+              }}
+            >
+              <Clock className="h-3.5 w-3.5" />
+              {p.label}
+            </P.Item>
+          ))}
+        </P.SubContent>
+      </P.Sub>
 
       {/* Relationship actions live under "More" — they're lower-frequency and
           will grow (blocks, duplicates, related) as we add more relation types. */}

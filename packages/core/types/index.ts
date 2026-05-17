@@ -1,5 +1,11 @@
 export type { Issue, IssueStatus, IssuePriority, IssueAssigneeType, IssueReaction } from "./issue";
 export type {
+  IssueReminder,
+  IssueReminderStatus,
+  IssueReminderCancelReason,
+  CreateReminderRequest,
+} from "./reminder";
+export type {
   Agent,
   AgentStatus,
   AgentRuntimeMode,
