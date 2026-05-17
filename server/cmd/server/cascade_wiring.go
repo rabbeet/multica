@@ -107,6 +107,16 @@ func (s *taskServiceSpawner) Spawn(ctx context.Context, issueID uuid.UUID, _ cas
 		return fmt.Errorf("cascade spawner: load issue: %w", err)
 	}
 	if _, err := s.taskSvc.EnqueueTaskForIssue(ctx, issue); err != nil {
+		// Translate deterministic enqueue gates into the cascade
+		// permanent-skip sentinel so the worker stops retrying. The
+		// operator fix (assign agent, unarchive, wire runtime) will
+		// be picked up by the NEXT webhook delivery, not by replaying
+		// this row.
+		if errors.Is(err, service.ErrIssueHasNoAssignee) ||
+			errors.Is(err, service.ErrAssigneeAgentArchived) ||
+			errors.Is(err, service.ErrAssigneeAgentNoRuntime) {
+			return fmt.Errorf("cascade spawner: enqueue gated (%w): %v", cascade.ErrSpawnGated, err)
+		}
 		return fmt.Errorf("cascade spawner: enqueue: %w", err)
 	}
 	return nil

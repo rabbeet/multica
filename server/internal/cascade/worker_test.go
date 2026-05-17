@@ -3,6 +3,7 @@ package cascade
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -288,6 +289,48 @@ func TestWorker_SpawnFailureLeavesRowUnprocessed(t *testing.T) {
 	}
 	if action != nil {
 		t.Errorf("expected action NULL after spawn failure, got %q", *action)
+	}
+}
+
+func TestWorker_SpawnGatedMarksRowSkipped(t *testing.T) {
+	// Companion to TestWorker_SpawnFailureLeavesRowUnprocessed:
+	// when the Spawner returns ErrSpawnGated (deterministic refusal
+	// like "issue has no assignee"), the worker must mark the row
+	// processed with scope_filter_skip so the same event does not
+	// loop the queue forever. The operator's fix lands on the NEXT
+	// webhook delivery, not by replaying this row.
+	pool, _, issueID, cleanup := setupWorkerTest(t)
+	if pool == nil {
+		return
+	}
+	defer cleanup()
+
+	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/4", "sha-gated", "ci_failure")
+	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+
+	sp := &fakeSpawner{spawnErr: fmt.Errorf("no assignee: %w", ErrSpawnGated)}
+	w := NewWorker(pool, sp, nil, nil)
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 1 {
+		t.Errorf("expected one spawn attempt, got %d", sp.spawnCalls.Load())
+	}
+
+	var action *string
+	var processedAt *time.Time
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action, processed_at FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &processedAt); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if processedAt == nil {
+		t.Error("expected processed_at set after spawn gated, got NULL")
+	}
+	if action == nil || *action != "scope_filter_skip" {
+		got := "<nil>"
+		if action != nil {
+			got = *action
+		}
+		t.Errorf("action = %q, want scope_filter_skip", got)
 	}
 }
 

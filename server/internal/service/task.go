@@ -98,6 +98,29 @@ func NewTaskService(q *db.Queries, tx TxStarter, hub *realtime.Hub, bus *events.
 	return &TaskService{Queries: q, TxStarter: tx, Hub: hub, Bus: bus, Wakeup: wakeup}
 }
 
+// Permanent-skip sentinels for the issue enqueue path. Callers like
+// the cascade worker use errors.Is on these to distinguish "the
+// system says don't run this, ever" from a transient failure worth
+// retrying. Surfaces as wrapped %w errors so existing string-based
+// callers keep working.
+var (
+	// ErrIssueHasNoAssignee is returned when the issue's assignee_id
+	// column is NULL — without an agent we have no one to enqueue
+	// against. Retrying does not help; the operator has to set an
+	// assignee (or the cascade worker scope-skips the row).
+	ErrIssueHasNoAssignee = errors.New("issue has no assignee")
+
+	// ErrAssigneeAgentArchived is returned when the assigned agent
+	// was archived after the assignment was made. The row should be
+	// permanently skipped — the only fix is reassignment.
+	ErrAssigneeAgentArchived = errors.New("agent is archived")
+
+	// ErrAssigneeAgentNoRuntime is returned when the assigned agent
+	// has no runtime configured. Permanent until the operator wires
+	// a runtime onto the agent.
+	ErrAssigneeAgentNoRuntime = errors.New("agent has no runtime")
+)
+
 // EnqueueTaskForIssue creates a queued task for an agent-assigned issue.
 // No context snapshot is stored — the agent fetches all data it needs at
 // runtime via the multica CLI.
@@ -116,8 +139,8 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, t
 // expected behavior.
 func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, forceFreshSession bool) (db.AgentTaskQueue, error) {
 	if !issue.AssigneeID.Valid {
-		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "issue has no assignee")
-		return db.AgentTaskQueue{}, fmt.Errorf("issue has no assignee")
+		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", ErrIssueHasNoAssignee.Error())
+		return db.AgentTaskQueue{}, ErrIssueHasNoAssignee
 	}
 
 	agent, err := s.Queries.GetAgent(ctx, issue.AssigneeID)
@@ -127,11 +150,11 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 	}
 	if agent.ArchivedAt.Valid {
 		slog.Debug("task enqueue skipped: agent is archived", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agent.ID))
-		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, ErrAssigneeAgentArchived
 	}
 	if !agent.RuntimeID.Valid {
-		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "agent has no runtime")
-		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
+		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", ErrAssigneeAgentNoRuntime.Error())
+		return db.AgentTaskQueue{}, ErrAssigneeAgentNoRuntime
 	}
 
 	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
