@@ -43,7 +43,9 @@ import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, DueDatePicker, 
 import { IssueActionsDropdown, useIssueActions } from "../actions";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { CommentCard } from "./comment-card";
-import { CommentInput } from "./comment-input";
+import { CommentInput, type CommentInputRef } from "./comment-input";
+import { PopularSkillsBar } from "./popular-skills-bar";
+import { insertSkillAndRecord } from "../../editor/extensions/skill-recency";
 import { AgentLiveCard } from "./agent-live-card";
 import { ExecutionLogSection } from "./execution-log-section";
 import { useQuery } from "@tanstack/react-query";
@@ -398,6 +400,9 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   }, [highlightCommentId, timeline.length]);
 
   const descEditorRef = useRef<ContentEditorRef>(null);
+  // Ref exposes `insertAtCursor` so the popular-skills bar can drop a
+  // `/skill-name ` literal at the caret position. PUL-161.
+  const commentInputRef = useRef<CommentInputRef>(null);
   const { isDragOver: descDragOver, dropZoneProps: descDropZoneProps } = useFileDropZone({
     onDrop: (files) => files.forEach((f) => descEditorRef.current?.uploadFile(f)),
   });
@@ -994,7 +999,23 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 naturally: type at the top, see your comment appear at the
                 top, no scroll-to-bottom required. */}
             <div className="mt-4">
-              <CommentInput issueId={id} onSubmit={submitComment} />
+              <CommentInput
+                ref={commentInputRef}
+                issueId={id}
+                onSubmit={submitComment}
+              />
+              {workspace?.id ? (
+                <PopularSkillsBar
+                  workspaceId={workspace.id}
+                  onPick={(skill) =>
+                    insertSkillAndRecord(
+                      commentInputRef.current,
+                      workspace.id,
+                      skill,
+                    )
+                  }
+                />
+              ) : null}
             </div>
 
             {/* Timeline entries (newest-first; see timelineView memo).
