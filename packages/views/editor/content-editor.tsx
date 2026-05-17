@@ -92,6 +92,13 @@ interface ContentEditorProps {
    * system prompts, where the content is fed to an LLM as plain text).
    */
   disableMentions?: boolean;
+  /**
+   * When true, register the `/`-triggered skill autocomplete extension
+   * (PUL-161). Used by the issue comment input. Off by default. Requires a
+   * QueryClient (the normal `<QueryClientProvider>` case); without one the
+   * option is ignored.
+   */
+  enableSkillSuggestion?: boolean;
 }
 
 interface ContentEditorRef {
@@ -105,6 +112,14 @@ interface ContentEditorRef {
   uploadFile: (file: File) => void;
   /** True when file uploads are still in progress. */
   hasActiveUploads: () => boolean;
+  /**
+   * Inserts `text` as **plain text** at the current selection. Text is NOT
+   * parsed as markdown and NOT wrapped in any Tiptap node — it becomes
+   * literal characters in the document. Use for UI-driven text insertion
+   * such as the popular-skills-bar pills (PUL-161). For markdown content,
+   * use `defaultValue` instead.
+   */
+  insertAtCursor: (text: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +141,7 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       submitOnEnter = false,
       currentIssueId,
       disableMentions = false,
+      enableSkillSuggestion = false,
     },
     ref,
   ) {
@@ -168,6 +184,7 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
         onUploadFileRef,
         submitOnEnter,
         disableMentions,
+        enableSkillSuggestion,
       }),
       onUpdate: ({ editor: ed }) => {
         if (!onUpdateRef.current) return;
@@ -226,6 +243,12 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
         if (!editor || !onUploadFileRef.current) return;
         const endPos = editor.state.doc.content.size;
         uploadAndInsertFile(editor, file, onUploadFileRef.current, endPos);
+      },
+      insertAtCursor: (text: string) => {
+        // Plain text insertion — `insertContent(string)` does not parse as
+        // markdown and does not wrap in any node. Used by the popular-skills
+        // bar to drop `/skill-name ` at the cursor. PUL-161.
+        editor?.chain().focus().insertContent(text).run();
       },
       hasActiveUploads: () => {
         if (!editor) return false;

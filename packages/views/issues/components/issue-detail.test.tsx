@@ -74,6 +74,14 @@ vi.mock("@multica/core/workspace/queries", () => ({
     queryKey: ["workspaces"],
     queryFn: () => Promise.resolve([{ id: "ws-1", name: "Test WS", slug: "test" }]),
   }),
+  // PUL-161: comment input + popular-skills-bar both prefetch via this hook.
+  skillListOptions: (wsId: string) => ({
+    queryKey: ["workspaces", wsId, "skills"],
+    queryFn: () => Promise.resolve([]),
+  }),
+  workspaceKeys: {
+    skills: (wsId: string) => ["workspaces", wsId, "skills"] as const,
+  },
 }));
 
 // Mock @multica/core/paths — after the URL-driven workspace refactor,

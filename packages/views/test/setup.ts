@@ -60,3 +60,9 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 if (typeof document.elementFromPoint !== "function") {
   document.elementFromPoint = () => null;
 }
+
+// jsdom doesn't implement Element.scrollIntoView; suggestion-popup lists call
+// it from a useEffect when the keyboard selection moves.
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = function () {};
+}

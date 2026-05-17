@@ -37,6 +37,8 @@ import type { AnyExtension } from "@tiptap/core";
 import type { UploadResult } from "@multica/core/hooks/use-file-upload";
 import { BaseMentionExtension } from "./mention-extension";
 import { createMentionSuggestion } from "./mention-suggestion";
+import { createSkillExtension } from "./skill-extension";
+import { createSkillSuggestion } from "./skill-suggestion";
 import { CodeBlockView } from "./code-block-view";
 import { createMarkdownPasteExtension } from "./markdown-paste";
 import { createMarkdownCopyExtension } from "./markdown-copy";
@@ -93,6 +95,14 @@ export interface EditorExtensionsOptions {
    * parsed into a mention node.
    */
   disableMentions?: boolean;
+  /**
+   * When true, register the `/`-triggered skill-autocomplete suggestion. Used
+   * by the issue comment input. Skipped for editors where slash commands have
+   * no meaning (agent system prompts, doc bodies). Requires `queryClient` —
+   * the suggestion reads the workspace skill cache imperatively at trigger
+   * time. PUL-161.
+   */
+  enableSkillSuggestion?: boolean;
 }
 
 export function createEditorExtensions(
@@ -138,6 +148,13 @@ export function createEditorExtensions(
               : {}),
           }),
         ]),
+    // PUL-161: `/`-triggered skill autocomplete. Independent of mention —
+    // separate Suggestion plugin with `char: "/"`. Plain-text insertion
+    // (NOT a Tiptap node) preserves the markdown roundtrip so the agent sees
+    // a literal `/skill-name `.
+    ...(options.enableSkillSuggestion && options.queryClient
+      ? [createSkillExtension(createSkillSuggestion(options.queryClient))]
+      : []),
     Typography,
     Placeholder.configure({ placeholder: placeholderText }),
     createMarkdownPasteExtension(),

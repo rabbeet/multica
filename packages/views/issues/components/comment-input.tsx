@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState, useCallback } from "react";
 import { ArrowUp, Loader2, Maximize2, Minimize2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@multica/ui/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { cn } from "@multica/ui/lib/utils";
@@ -9,6 +10,8 @@ import { ContentEditor, type ContentEditorRef, useFileDropZone, FileDropOverlay 
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 import { useFileUpload } from "@multica/core/hooks/use-file-upload";
 import { api } from "@multica/core/api";
+import { useCurrentWorkspace } from "@multica/core/paths";
+import { skillListOptions } from "@multica/core/workspace/queries";
 import { useT } from "../../i18n";
 
 interface CommentInputProps {
@@ -16,7 +19,20 @@ interface CommentInputProps {
   onSubmit: (content: string, attachmentIds?: string[]) => Promise<void>;
 }
 
-function CommentInput({ issueId, onSubmit }: CommentInputProps) {
+/**
+ * Imperative handle exposed to parent components so they can insert text at
+ * the editor's caret without lifting the whole `editorRef` chain. Currently
+ * used by the popular-skills-bar to drop `/skill-name ` on click (PUL-161).
+ */
+export interface CommentInputRef {
+  insertAtCursor: (text: string) => void;
+  focus: () => void;
+}
+
+const CommentInput = forwardRef<CommentInputRef, CommentInputProps>(function CommentInput(
+  { issueId, onSubmit },
+  forwardedRef,
+) {
   const { t } = useT("issues");
   const editorRef = useRef<ContentEditorRef>(null);
   const [isEmpty, setIsEmpty] = useState(true);
@@ -27,6 +43,28 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
   const { isDragOver, dropZoneProps } = useFileDropZone({
     onDrop: (files) => files.forEach((f) => editorRef.current?.uploadFile(f)),
   });
+
+  // Prefetch workspace skills so the `/`-autocomplete dropdown can read them
+  // synchronously from the QueryClient cache on the user's first `/` keystroke
+  // (no network request inside the typing path). PUL-161.
+  const workspace = useCurrentWorkspace();
+  useQuery({
+    ...skillListOptions(workspace?.id ?? ""),
+    enabled: !!workspace?.id,
+  });
+
+  useImperativeHandle(
+    forwardedRef,
+    () => ({
+      insertAtCursor: (text: string) => {
+        editorRef.current?.insertAtCursor(text);
+      },
+      focus: () => {
+        editorRef.current?.focus();
+      },
+    }),
+    [],
+  );
 
   const handleUpload = useCallback(async (file: File) => {
     const result = await uploadWithToast(file, { issueId });
@@ -73,6 +111,7 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
           debounceMs={100}
           currentIssueId={issueId}
           submitOnEnter
+          enableSkillSuggestion
         />
       </div>
       <div className="absolute bottom-1 right-1.5 flex items-center gap-1">
@@ -112,6 +151,6 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
       {isDragOver && <FileDropOverlay />}
     </div>
   );
-}
+});
 
 export { CommentInput };

@@ -46,6 +46,10 @@
     "searching": "Searching...",
     "no_results": "No results"
   },
+  "skill": {
+    "group_label": "Skills",
+    "no_results": "No skills found"
+  },
   "code_block": {
     "copy_code": "Copy code"
   },
