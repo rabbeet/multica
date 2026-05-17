@@ -72,10 +72,20 @@ type TriggerEvent struct {
 	EventType string
 
 	// PRURL / PRNumber / PRTitle / HeadSHA / Branch identify the PR the
-	// event is about. All five are required; PR4's lookup logic needs
-	// PRTitle (primary) and Branch (fallback). Zero values are not
-	// permitted — adapters that cannot fill them should return
-	// (nil, ErrSchemaMismatch) to make the missing-field failure loud.
+	// event is about. The worker's lookup logic needs PRTitle (primary)
+	// or Branch (fallback) — at least one must be set or the row is
+	// scope_filter_skip'd.
+	//
+	// Exception (PUL-148): GitHub frequently delivers workflow_run /
+	// check_run events with an empty pull_requests array, leaving the
+	// adapter without PR url / number. The adapter persists those rows
+	// with PRURL="" and PRNumber=0; the worker resolves the issue from
+	// Branch alone and treats the empty pr_url as "PR lookup deferred"
+	// (loop-guard then keys off issue_id rather than pr_url, see
+	// cascade.Worker.checkLoopGuard).
+	//
+	// HeadSHA is required for ci_failure events; missing-field failures
+	// surface as ErrSchemaMismatch.
 	PRURL    string
 	PRNumber int
 	PRTitle  string

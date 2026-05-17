@@ -93,6 +93,44 @@ func TestNormalize_WorkflowRun_SuccessSkips(t *testing.T) {
 	}
 }
 
+func TestNormalize_WorkflowRun_EmptyPullRequestsRelaxed(t *testing.T) {
+	// PUL-148: GitHub frequently delivers workflow_run.pull_requests=[]
+	// on real same-repo PR runs. Cascade adapter must accept these
+	// with PRURL/PRNumber zero so the worker resolves the issue from
+	// the branch name. (Previously this returned ErrUnsupportedEvent
+	// and silently dropped the event.)
+	body := `{
+        "action": "completed",
+        "workflow_run": {
+            "conclusion": "failure",
+            "head_sha": "deadbeef",
+            "head_branch": "agent-1/pul-143-cascade-smoke",
+            "pull_requests": []
+        },
+        "repository": {"full_name": "rabbeet/Pulse"}
+    }`
+	s := New(Config{SecretCurrent: "x"})
+	evt, err := s.Normalize(makeReq("workflow_run", body))
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if evt.EventType != webhooks.EventTypeCIFailure {
+		t.Errorf("EventType = %q, want ci_failure", evt.EventType)
+	}
+	if evt.PRURL != "" {
+		t.Errorf("PRURL = %q, want empty (worker resolves from branch)", evt.PRURL)
+	}
+	if evt.PRNumber != 0 {
+		t.Errorf("PRNumber = %d, want 0", evt.PRNumber)
+	}
+	if evt.HeadSHA != "deadbeef" {
+		t.Errorf("HeadSHA = %q, want deadbeef", evt.HeadSHA)
+	}
+	if evt.Branch != "agent-1/pul-143-cascade-smoke" {
+		t.Errorf("Branch = %q, want agent-1/pul-143-cascade-smoke", evt.Branch)
+	}
+}
+
 func TestNormalize_WorkflowRun_MultiplePRsSkips(t *testing.T) {
 	// Fork PRs / merge-queue runs can carry multiple PRs. We deliberately
 	// skip these — the cascade only handles single-PR workflows.
@@ -135,6 +173,35 @@ func TestNormalize_CheckRun_FailureWithPR(t *testing.T) {
 	}
 	if evt.PRNumber != 7 {
 		t.Errorf("PRNumber = %d, want 7", evt.PRNumber)
+	}
+}
+
+func TestNormalize_CheckRun_EmptyPullRequestsRelaxed(t *testing.T) {
+	// Symmetric to TestNormalize_WorkflowRun_EmptyPullRequestsRelaxed
+	// — same GitHub payload quirk applies to check_run (PUL-148).
+	body := `{
+        "action": "completed",
+        "check_run": {
+            "conclusion": "failure",
+            "head_sha": "cafebabe",
+            "html_url": "https://github.com/rabbeet/Pulse/runs/9",
+            "pull_requests": []
+        },
+        "repository": {"full_name": "rabbeet/Pulse"}
+    }`
+	s := New(Config{SecretCurrent: "x"})
+	evt, err := s.Normalize(makeReq("check_run", body))
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if evt.EventType != webhooks.EventTypeCIFailure {
+		t.Errorf("EventType = %q, want ci_failure", evt.EventType)
+	}
+	if evt.PRURL != "" || evt.PRNumber != 0 {
+		t.Errorf("PRURL/PRNumber = (%q, %d), want empty (worker resolves)", evt.PRURL, evt.PRNumber)
+	}
+	if evt.HeadSHA != "cafebabe" {
+		t.Errorf("HeadSHA = %q, want cafebabe", evt.HeadSHA)
 	}
 }
 

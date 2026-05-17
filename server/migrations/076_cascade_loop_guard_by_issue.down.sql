@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_cascade_retrigger_loop_guard_by_issue;

@@ -180,21 +180,36 @@ func (s *Source) normalizeWorkflowRun(body []byte, deliveryID string) (*webhooks
 	if p.WorkflowRun.HeadSHA == "" || p.Repository.FullName == "" {
 		return nil, fmt.Errorf("%w: workflow_run missing head_sha or repository.full_name", webhooks.ErrSchemaMismatch)
 	}
-	// workflow_run events can carry zero, one, or many PRs in the
-	// pull_requests array. Cascade only reacts when exactly one PR
-	// is involved — anything else (fork PR, no-PR push run) skips.
-	if len(p.WorkflowRun.PullRequests) != 1 {
+	// workflow_run.pull_requests may legitimately be empty even for
+	// same-repo PRs — GitHub frequently omits the array on real
+	// deliveries (verified empirically on PUL-143 smoke 2026-05-16:
+	// `gh api repos/.../actions/runs/<id>` returned pull_requests=[]
+	// for a CI run that was unambiguously associated with PR #498).
+	// Treat an empty array the same as the "PR-less push run" case:
+	// persist with PRURL="" PRNumber=0 and let the worker resolve
+	// the issue from the branch name (LookupIssueIdentifier already
+	// supports branch-only resolution via the agent-<N>/<prefix-N>-…
+	// convention). Multi-PR runs (forks, merge queues) still skip —
+	// the cascade only handles single-PR workflows and len > 1 is
+	// genuinely ambiguous.
+	if len(p.WorkflowRun.PullRequests) > 1 {
 		return nil, webhooks.ErrUnsupportedEvent
 	}
-	pr := p.WorkflowRun.PullRequests[0]
-	if pr.HTMLURL == "" || pr.Number == 0 {
-		return nil, fmt.Errorf("%w: workflow_run.pull_requests missing html_url or number", webhooks.ErrSchemaMismatch)
+	var prURL string
+	var prNumber int
+	if len(p.WorkflowRun.PullRequests) == 1 {
+		pr := p.WorkflowRun.PullRequests[0]
+		if pr.HTMLURL == "" || pr.Number == 0 {
+			return nil, fmt.Errorf("%w: workflow_run.pull_requests missing html_url or number", webhooks.ErrSchemaMismatch)
+		}
+		prURL = pr.HTMLURL
+		prNumber = int(pr.Number)
 	}
 	return &webhooks.TriggerEvent{
 		EventID:   EventID(deliveryID),
 		EventType: webhooks.EventTypeCIFailure,
-		PRURL:     pr.HTMLURL,
-		PRNumber:  int(pr.Number),
+		PRURL:     prURL,
+		PRNumber:  prNumber,
 		// workflow_run does not carry the PR title or branch
 		// directly on the top-level payload. PR lookup uses head_sha
 		// + repo via the worker's GitHub API call (PR4 G5 state
@@ -236,18 +251,27 @@ func (s *Source) normalizeCheckRun(body []byte, deliveryID string) (*webhooks.Tr
 	if p.CheckRun.HeadSHA == "" || p.Repository.FullName == "" {
 		return nil, fmt.Errorf("%w: check_run missing head_sha or repository.full_name", webhooks.ErrSchemaMismatch)
 	}
-	if len(p.CheckRun.PullRequests) != 1 {
+	// Same payload quirk as workflow_run — see normalizeWorkflowRun
+	// for context. check_run.pull_requests is also frequently empty
+	// on real deliveries (PUL-148). Multi-PR (fork) still skips.
+	if len(p.CheckRun.PullRequests) > 1 {
 		return nil, webhooks.ErrUnsupportedEvent
 	}
-	pr := p.CheckRun.PullRequests[0]
-	if pr.HTMLURL == "" || pr.Number == 0 {
-		return nil, fmt.Errorf("%w: check_run.pull_requests missing html_url or number", webhooks.ErrSchemaMismatch)
+	var prURL string
+	var prNumber int
+	if len(p.CheckRun.PullRequests) == 1 {
+		pr := p.CheckRun.PullRequests[0]
+		if pr.HTMLURL == "" || pr.Number == 0 {
+			return nil, fmt.Errorf("%w: check_run.pull_requests missing html_url or number", webhooks.ErrSchemaMismatch)
+		}
+		prURL = pr.HTMLURL
+		prNumber = int(pr.Number)
 	}
 	return &webhooks.TriggerEvent{
 		EventID:   EventID(deliveryID),
 		EventType: webhooks.EventTypeCIFailure,
-		PRURL:     pr.HTMLURL,
-		PRNumber:  int(pr.Number),
+		PRURL:     prURL,
+		PRNumber:  prNumber,
 		HeadSHA:   p.CheckRun.HeadSHA,
 	}, nil
 }
