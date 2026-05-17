@@ -260,8 +260,19 @@ func (w *Worker) resolveIssue(ctx context.Context, rowID int64, eventID uuid.UUI
 // processOne runs the per-event pipeline for an already-resolved
 // issue: loop guard → concurrency → spawn.
 func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID uuid.UUID, prURL string, prNumber int32, headSHA, eventType string) {
-	// Loop guard: count distinct head_sha within the 6h window.
-	if tripped, err := w.checkLoopGuard(ctx, prURL); err != nil {
+	// Loop guard: count distinct head_sha within the 6h window for
+	// this issue. Pre-PUL-148 the key was pr_url, which the GitHub
+	// adapter relaxation could leave empty (workflow_run.pull_requests=[]
+	// path). PR #21 closed that gap by having the worker back-fill
+	// pr_url via commits/{sha}/pulls, but the resolver is an external
+	// API call and can transiently fail — in which case the empty
+	// pr_url would collapse unrelated PRs into one loop-guard bucket
+	// and false-trip after 3 distinct head_shas. Keying off issue_id
+	// is robust regardless of resolver outcome (issueID is the same
+	// resolved value the worker just used above to make routing
+	// decisions), and is semantically tighter for multi-PR-per-issue
+	// flows.
+	if tripped, err := w.checkLoopGuard(ctx, issueID); err != nil {
 		w.logger.Warn("cascade.worker.loop_guard_query_failed", "error", err)
 	} else if tripped {
 		w.flipLoopGuarded(ctx, issueID)
@@ -335,18 +346,26 @@ func (w *Worker) markRow(ctx context.Context, rowID int64, action string) {
 	}
 }
 
-// checkLoopGuard reports whether the per-PR distinct-head_sha count
-// in LoopGuardWindow meets LoopGuardThreshold. Hits the
-// idx_cascade_retrigger_loop_guard index from migration 072.
-func (w *Worker) checkLoopGuard(ctx context.Context, prURL string) (bool, error) {
+// checkLoopGuard reports whether the per-issue distinct-head_sha
+// count in LoopGuardWindow meets LoopGuardThreshold. Pre-PUL-148 the
+// key was pr_url, but real GitHub deliveries can arrive with
+// pr_url="" (workflow_run.pull_requests=[] case relaxed by PR #21's
+// adapter fix), which would bucket-collapse distinct PRs and
+// false-trip the guard. Keying off issue_id is the semantically-
+// correct replacement: "this issue has had 3 distinct head_shas
+// spawn in 6h" is the runaway scenario we actually want to catch.
+// Backed by idx_cascade_retrigger_loop_guard_by_issue from
+// migration 076.
+func (w *Worker) checkLoopGuard(ctx context.Context, issueID uuid.UUID) (bool, error) {
 	const sql = `
 SELECT COUNT(DISTINCT head_sha)
 FROM cascade_retrigger
-WHERE pr_url = $1
+WHERE issue_id = $1
   AND action = 'spawn'
   AND fired_at > now() - $2::interval`
 	var n int
-	if err := w.pool.QueryRow(ctx, sql, prURL,
+	if err := w.pool.QueryRow(ctx, sql,
+		pgtype.UUID{Bytes: issueID, Valid: true},
 		fmt.Sprintf("%d seconds", int(LoopGuardWindow.Seconds()))).Scan(&n); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
