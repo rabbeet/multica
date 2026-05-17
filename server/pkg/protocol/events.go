@@ -100,6 +100,22 @@ const (
 	EventAutopilotRunStart = "autopilot:run_start"
 	EventAutopilotRunDone  = "autopilot:run_done"
 
+	// Reminder events (PUL-154 «Wake up in N»).
+	// EventReminderCreated   — UI just scheduled a new reminder.
+	// EventReminderFired     — scheduler successfully posted the wake_up
+	//                          comment and applied any status flip; UI should
+	//                          invalidate both reminders-for-issue and (if the
+	//                          payload signals a status change) issue lists.
+	// EventReminderCancelled — pending reminder was cancelled, either by the
+	//                          user (cancel_reason='manual') or auto-pruned
+	//                          because the issue saw activity in the wait
+	//                          window (cancel_reason='activity'). Same
+	//                          invalidation as Created (the pending list
+	//                          shrunk).
+	EventReminderCreated   = "reminder:created"
+	EventReminderFired     = "reminder:fired"
+	EventReminderCancelled = "reminder:cancelled"
+
 	// Daemon events
 	EventDaemonHeartbeat     = "daemon:heartbeat"
 	EventDaemonHeartbeatAck  = "daemon:heartbeat_ack"

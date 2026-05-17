@@ -303,6 +303,30 @@ type IssueReaction struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+// IssueReminder is hand-mirrored from migration 076_issue_reminder.up.sql
+// (PUL-154). The file is otherwise sqlc-generated, but the cascade-related
+// types (CascadePendingEvent, CascadeRetrigger) are deliberately omitted
+// from the generated set per the team convention established in PUL-102
+// (cascade uses raw pgxpool, not sqlc). Regenerating the full models.go
+// would silently break that. Maintaining IssueReminder here as a manual
+// addition mirrors how those callers handle the same constraint.
+type IssueReminder struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	IssueID        pgtype.UUID        `json:"issue_id"`
+	CreatedByType  string             `json:"created_by_type"`
+	CreatedByID    pgtype.UUID        `json:"created_by_id"`
+	FireAt         pgtype.Timestamptz `json:"fire_at"`
+	Note           pgtype.Text        `json:"note"`
+	Status         string             `json:"status"`
+	FiringAt       pgtype.Timestamptz `json:"firing_at"`
+	FiredAt        pgtype.Timestamptz `json:"fired_at"`
+	FiredCommentID pgtype.UUID        `json:"fired_comment_id"`
+	CancelledAt    pgtype.Timestamptz `json:"cancelled_at"`
+	CancelReason   pgtype.Text        `json:"cancel_reason"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type IssueStatusHistory struct {
 	ID         int64              `json:"id"`
 	IssueID    pgtype.UUID        `json:"issue_id"`

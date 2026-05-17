@@ -10,6 +10,22 @@ import (
 // 070_issue_status_flow_p0.up.sql).
 const SourceHookComment = "hook_comment"
 
+// SourceHookReminder is the issue_status_history.source value emitted when
+// PUL-154's reminder scheduler fires a wake_up comment that also flips the
+// issue from waiting/backlog back to todo. The CHECK constraint for this
+// source value is added in migration 077_extend_check_for_wake_up.up.sql.
+// Paired with reminder.id as ref_id, the existing UNIQUE(source, ref_id)
+// idempotency contract makes retry-safe firing trivial.
+const SourceHookReminder = "hook_reminder"
+
+// CommentTypeWakeUp is the comment.type the reminder scheduler emits.
+// Marking these comments with a distinct type lets DecideFlip skip them
+// automatically (it already filters on type='comment') and lets
+// handler.shouldEnqueueOnComment suppress the agent on-comment trigger
+// explicitly. The CHECK constraint for this comment.type is added in
+// migration 077_extend_check_for_wake_up.up.sql.
+const CommentTypeWakeUp = "wake_up"
+
 // FlipTransition describes a single waiting↔in_progress status change derived
 // from a comment event. It is returned by DecideFlip and consumed by the
 // comment-create handler to drive the actual UPDATE issue + INSERT

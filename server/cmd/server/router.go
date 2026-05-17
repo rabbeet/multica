@@ -387,8 +387,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/labels", h.ListLabelsForIssue)
 					r.Post("/labels", h.AttachLabel)
 					r.Delete("/labels/{labelId}", h.DetachLabel)
+					// PUL-154 wake-up reminders, issue-scoped.
+					r.Post("/reminders", h.CreateReminder)
+					r.Get("/reminders", h.ListPendingReminders)
 				})
 			})
+
+			// PUL-154: reminder cancel by id (clients only know reminder.id, not
+			// the parent issue id — mirrors /api/comments/{commentId} pattern).
+			r.Delete("/api/reminders/{reminderId}", h.CancelReminder)
 
 			// Task messages (user-facing, not daemon auth)
 			r.Get("/api/tasks/{taskId}/messages", h.ListTaskMessagesByUser)
