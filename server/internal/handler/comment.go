@@ -232,6 +232,18 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// PUL-154: 'wake_up' is reserved for the reminder scheduler. Accepting it
+	// from this HTTP path would let a caller dodge the on-comment and mention
+	// agent triggers (DecideFlip already filters on type='comment'). The
+	// scheduler bypasses this handler entirely and calls CommentService.Create
+	// directly with the appropriate StatusTransition. Reject so the type stays
+	// a server-internal channel.
+	if req.Type == service.CommentTypeWakeUp {
+		writeError(w, http.StatusBadRequest,
+			"comment type 'wake_up' is reserved for the reminder scheduler")
+		return
+	}
+
 	// Defense against resumed-session drift: when an agent posts from inside a
 	// comment-triggered task AND the comment is being posted on that same
 	// issue, the parent_id must exactly match the task's trigger comment.

@@ -1605,6 +1605,14 @@ func (h *Handler) shouldEnqueueAgentTask(ctx context.Context, issue db.Issue) bo
 // trigger the assigned agent. Fires for any status — comments are
 // conversational and can happen at any stage, including after completion
 // (e.g. follow-up questions on a done issue).
+//
+// Note on type filtering: the caller (handler.CreateComment) currently passes
+// only normal comment types here. PUL-154's wake_up type is suppressed at the
+// caller boundary (see CreateComment's enqueue branch), so this function does
+// not need an inline wake_up check — adding one here would be defensive but
+// redundant with the caller's `comment.Type == service.CommentTypeWakeUp`
+// guard. If a future caller starts routing non-comment types through this
+// helper, add the guard here too.
 func (h *Handler) shouldEnqueueOnComment(ctx context.Context, issue db.Issue) bool {
 	if !h.isAgentAssigneeReady(ctx, issue) {
 		return false

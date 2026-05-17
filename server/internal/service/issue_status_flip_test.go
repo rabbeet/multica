@@ -95,6 +95,23 @@ func TestDecideFlip(t *testing.T) {
 			want:    nil,
 		},
 
+		// ── PUL-154 wake_up regression-prevention: the new comment.type
+		// MUST be filtered out so reminder fires never trigger the
+		// in_progress↔waiting flip. The scheduler applies the explicit
+		// waiting/backlog → todo flip through StatusTransition instead.
+		{
+			name:    "type=wake_up from member on waiting → no flip (PUL-154)",
+			comment: mkComment("member", memberM, CommentTypeWakeUp),
+			issue:   mkIssue("waiting", "agent", agentA),
+			want:    nil,
+		},
+		{
+			name:    "type=wake_up from agent assignee on in_progress → no flip (PUL-154)",
+			comment: mkComment("agent", agentA, CommentTypeWakeUp),
+			issue:   mkIssue("in_progress", "agent", agentA),
+			want:    nil,
+		},
+
 		// ── assignee_type filter ──────────────────────────────────────────
 		{
 			name:    "assignee_type=member → no flip (Rule A)",

@@ -931,6 +931,38 @@ func TestCreateCommentRejectsMalformedParentID(t *testing.T) {
 	testHandler.DeleteIssue(w, req)
 }
 
+// PUL-154: 'wake_up' is the reminder-scheduler-internal comment type. The
+// HTTP CreateComment path must reject it so a caller cannot author one
+// directly and dodge the DecideFlip / agent-trigger filters.
+func TestCreateCommentRejectsWakeUpType(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "wake_up rejection issue",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var issue IssueResponse
+	json.NewDecoder(w.Body).Decode(&issue)
+
+	w = httptest.NewRecorder()
+	req = newRequest("POST", "/api/issues/"+issue.ID+"/comments", map[string]any{
+		"content": "trying to spoof a wake_up",
+		"type":    "wake_up",
+	})
+	req = withURLParam(req, "id", issue.ID)
+	testHandler.CreateComment(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateComment: expected 400 for type=wake_up, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = newRequest("DELETE", "/api/issues/"+issue.ID, nil)
+	req = withURLParam(req, "id", issue.ID)
+	testHandler.DeleteIssue(w, req)
+}
+
 func TestGetChatSessionRejectsMalformedSessionID(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("GET", "/api/chat/sessions/not-a-uuid", nil)

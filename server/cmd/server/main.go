@@ -301,6 +301,10 @@ func main() {
 	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
 	autopilotSvc := service.NewAutopilotService(queries, pool, bus, taskSvc)
 	registerAutopilotListeners(bus, autopilotSvc)
+	// PUL-154: shared comment-service used by both the HTTP handler and the
+	// reminder scheduler. Constructed once so both callers walk the same
+	// transactional path.
+	commentSvc := service.NewCommentService(queries, pool)
 
 	// Construct a LivenessStore that mirrors the one wired into the HTTP
 	// handler. Both the heartbeat write path (handler) and the sweeper read
@@ -316,6 +320,7 @@ func main() {
 	go heartbeatScheduler.Run(sweepCtx)
 	go runAutopilotScheduler(autopilotCtx, queries, autopilotSvc)
 	go runAutopilotFailureMonitor(autopilotCtx, queries, bus, envFailureMonitorConfig())
+	go runReminderScheduler(autopilotCtx, queries, bus, commentSvc)
 	go runDBStatsLogger(sweepCtx, pool)
 
 	if metricsServer != nil {
