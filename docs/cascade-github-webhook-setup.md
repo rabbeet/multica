@@ -43,6 +43,14 @@ After install, GitHub sends a `ping` event. The adapter responds 204 to pings (i
 
 If you see `webhooks.signature_failed { reason: signature_invalid }`, the secret env var does not match the App's webhook secret. If you see `webhooks.schema_mismatch`, GitHub bumped the event schema and the adapter needs updating — alert and escalate; do not silently work around it.
 
+## PR-resolution fallback (`MULTICA_GITHUB_API_TOKEN`)
+
+`workflow_run` and `check_run` deliveries from GitHub frequently arrive with `pull_requests: []` even when the run is attached to a same-repo PR — GitHub only populates that array for a narrow set of fork / security contexts. Without a fallback, the adapter would silently drop every CI-failure cascade event for these runs (204 to GitHub, no row in `cascade_retrigger`).
+
+Set `MULTICA_GITHUB_API_TOKEN` to a PAT or installation token with `pull_requests:read` on the watched repos. When this env var is present, the adapter calls `GET /repos/{owner}/{repo}/commits/{sha}/pulls` to backfill the PR for empty-array deliveries and forwards the event normally. Resolver errors are logged as `webhooks.github.workflow_run.pr_lookup_failed` / `webhooks.github.check_run.pr_lookup_failed` and the event 204s — GitHub's redelivery retry will re-hit the API on the next attempt.
+
+If the env var is unset, the adapter retains the pre-fallback behavior (skip on empty `pull_requests`), which is useful for dev boxes that don't need to wire up a token.
+
 ## Secret rotation procedure (90-day cadence)
 
 Per the constraint "Webhook secret rotation. Secret в env, rotation каждые 90 дней либо после подозрения на leak" in the plan, the adapter supports zero-downtime rotation via two env vars:

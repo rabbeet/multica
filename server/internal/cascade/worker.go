@@ -78,6 +78,20 @@ type IssueLoader interface {
 // "scope skip, normal" from "DB problem, retry later".
 var ErrIssueNotFound = errors.New("cascade: issue not found")
 
+// ErrSpawnGated signals the Spawner refused the run for a deterministic
+// reason that won't resolve on its own (issue has no assignee, the
+// assigned agent is archived, the agent has no runtime, etc.). The
+// worker marks the row processed with scope_filter_skip so the same
+// event does not loop the queue every PollInterval until the operator
+// fixes the underlying assignment.
+//
+// Spawner implementations are responsible for translating their
+// upstream sentinels into this error via fmt.Errorf("...: %w",
+// ErrSpawnGated). Transient failures (DB hiccup, daemon offline) must
+// NOT wrap this sentinel — they should surface as plain errors so
+// the worker keeps retrying.
+var ErrSpawnGated = errors.New("cascade: spawn gated, mark row skipped")
+
 // TriggerContext records why a run was spawned. Persisted into the
 // cascade_pending_event JSONB column when the event is queued; read
 // back by the drain hook so the next run still knows what woke it.
@@ -283,6 +297,17 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 
 	// Spawn.
 	if err := w.spawner.Spawn(ctx, issueID, tc); err != nil {
+		if errors.Is(err, ErrSpawnGated) {
+			// Permanent gate (no assignee, archived agent, etc.).
+			// Mark processed so the worker stops re-attempting; the
+			// operator's fix (assign agent / unarchive) will be
+			// picked up on the NEXT webhook delivery, not by
+			// re-running this row.
+			w.markRow(ctx, rowID, "scope_filter_skip")
+			w.logger.Info("cascade.worker.spawn_gated",
+				"issue_id", issueID, "event_id", eventID, "reason", err)
+			return
+		}
 		w.logger.Warn("cascade.worker.spawn_failed",
 			"issue_id", issueID, "error", err)
 		// Leave processed_at NULL so the next tick retries.
