@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/logger"
 	"github.com/multica-ai/multica/server/internal/mention"
@@ -269,40 +268,14 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	// source. See issue #1303 / discussion in MUL-1119, MUL-1125.
 
 	// PUL-13 P1: comment-create + status-flip share a single transaction with
-	// a row lock on the issue (SELECT ... FOR UPDATE). The lock serializes
-	// concurrent comment writers and any manual status changes against this
-	// issue. The flip — when DecideFlip returns one — is atomic with the
-	// comment insert: either both land or neither does.
-	tx, err := h.TxStarter.Begin(r.Context())
-	if err != nil {
-		slog.Warn("begin comment tx failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create comment")
-		return
-	}
-	defer tx.Rollback(r.Context())
-
-	qtx := h.Queries.WithTx(tx)
-
-	// Re-fetch the issue with a row lock. The earlier loadIssueForUser used a
-	// non-locking read suitable for the auth/identifier path; this read is the
-	// canonical one for the mutation, and its locked snapshot drives DecideFlip.
-	lockedIssue, err := qtx.GetIssueForUpdate(r.Context(), db.GetIssueForUpdateParams{
-		ID:          issue.ID,
+	// a row lock on the issue. The transactional core lives in CommentService
+	// so PUL-154's reminder scheduler can commit comments through the same
+	// path — DecideFlip and the audit-history invariant must not diverge
+	// between callers. Post-commit work (attachments, WS event, agent
+	// triggers, response) stays here because it is HTTP-shaped.
+	result, err := h.CommentService.Create(r.Context(), service.CommentCreateParams{
+		IssueID:     issue.ID,
 		WorkspaceID: issue.WorkspaceID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "issue not found")
-			return
-		}
-		slog.Warn("get issue for update failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create comment")
-		return
-	}
-
-	comment, err := qtx.CreateComment(r.Context(), db.CreateCommentParams{
-		IssueID:     lockedIssue.ID,
-		WorkspaceID: lockedIssue.WorkspaceID,
 		AuthorType:  authorType,
 		AuthorID:    parseUUID(authorID),
 		Content:     req.Content,
@@ -310,53 +283,19 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		ParentID:    parentID,
 	})
 	if err != nil {
-		slog.Warn("create comment failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create comment: "+err.Error())
+		switch {
+		case errors.Is(err, service.ErrIssueNotFound):
+			writeError(w, http.StatusNotFound, "issue not found")
+		case errors.Is(err, service.ErrInvalidParent):
+			writeError(w, http.StatusBadRequest, "invalid parent comment")
+		default:
+			slog.Warn("create comment failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
+			writeError(w, http.StatusInternalServerError, "failed to create comment: "+err.Error())
+		}
 		return
 	}
-
-	// Decision and execution are split: DecideFlip is pure, the writes below
-	// are the side-effect layer. See server/internal/service/issue_status_flip.go.
-	if transition := service.DecideFlip(comment, lockedIssue); transition != nil {
-		updatedIssue, err := qtx.UpdateIssueStatus(r.Context(), db.UpdateIssueStatusParams{
-			ID:     lockedIssue.ID,
-			Status: transition.ToStatus,
-		})
-		if err != nil {
-			slog.Warn("comment auto-flip update failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
-			writeError(w, http.StatusInternalServerError, "failed to apply status flip: "+err.Error())
-			return
-		}
-
-		_, err = qtx.InsertStatusHistory(r.Context(), db.InsertStatusHistoryParams{
-			IssueID:    lockedIssue.ID,
-			FromStatus: pgtype.Text{String: transition.FromStatus, Valid: true},
-			ToStatus:   transition.ToStatus,
-			Source:     service.SourceHookComment,
-			ActorID:    comment.AuthorID,
-			ActorType:  pgtype.Text{String: comment.AuthorType, Valid: true},
-			RefID:      pgtype.Text{String: uuidToString(comment.ID), Valid: true},
-		})
-		// UNIQUE (source, ref_id) on the table is the dedup contract: a duplicate
-		// fire on the same comment.id is treated as an idempotent no-op. This is
-		// only reachable if a prior committed tx already recorded this transition,
-		// which in the inline path requires a hook replay rather than normal flow.
-		if err != nil && !isUniqueViolation(err) {
-			slog.Warn("insert status history failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
-			writeError(w, http.StatusInternalServerError, "failed to record status flip: "+err.Error())
-			return
-		}
-
-		// Update the in-memory issue snapshot so downstream code (event publish,
-		// task enqueue, response payload) reflects the post-flip state.
-		issue = updatedIssue
-	}
-
-	if err := tx.Commit(r.Context()); err != nil {
-		slog.Warn("commit comment tx failed", append(logger.RequestAttrs(r), "error", err, "issue_id", issueID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create comment")
-		return
-	}
+	comment := result.Comment
+	issue = result.UpdatedIssue
 
 	// Link uploaded attachments to this comment.
 	if len(attachmentIDs) > 0 {
