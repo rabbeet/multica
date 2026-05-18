@@ -1,0 +1,23 @@
+{
+  "id": "33000000020",
+  "type": "PullRequestEvent",
+  "actor": {"id": 100, "login": "octocat"},
+  "repo": {"id": 1, "name": "rabbeet/Pulse", "url": "https://api.github.com/repos/rabbeet/Pulse"},
+  "public": true,
+  "created_at": "2026-05-17T18:20:11Z",
+  "payload": {
+    "action": "closed",
+    "number": 530,
+    "pull_request": {
+      "id": 444444,
+      "number": 530,
+      "html_url": "https://github.com/rabbeet/Pulse/pull/530",
+      "title": "[PUL-157] fix(scope): repair scope filter",
+      "merged": true,
+      "head": {
+        "sha": "cd38c1120b1c2d3e4f5061728394a5b6c7d8e9f3",
+        "ref": "agent-1/pul-157-fix"
+      }
+    }
+  }
+}

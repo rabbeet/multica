@@ -1,0 +1,14 @@
+{
+  "id": "33000000040",
+  "type": "PushEvent",
+  "actor": {"id": 100, "login": "octocat"},
+  "repo": {"id": 1, "name": "rabbeet/Pulse", "url": "https://api.github.com/repos/rabbeet/Pulse"},
+  "public": true,
+  "created_at": "2026-05-17T18:40:11Z",
+  "payload": {
+    "ref": "refs/heads/main",
+    "before": "33b8c1120b1c2d3e4f5061728394a5b6c7d8e9f9",
+    "after": "44b8c1120b1c2d3e4f5061728394a5b6c7d8e9fa",
+    "size": 1
+  }
+}

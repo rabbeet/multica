@@ -1,0 +1,28 @@
+{
+  "id": "33000000023",
+  "type": "PullRequestEvent",
+  "actor": {"id": 100, "login": "octocat"},
+  "repo": {"id": 1, "name": "rabbeet/Pulse", "url": "https://api.github.com/repos/rabbeet/Pulse"},
+  "public": true,
+  "created_at": "2026-05-17T18:23:11Z",
+  "payload": {
+    "action": "edited",
+    "number": 533,
+    "pull_request": {
+      "id": 444447,
+      "number": 533,
+      "html_url": "https://github.com/rabbeet/Pulse/pull/533",
+      "title": "[PUL-161] chore(deps): bump phpunit",
+      "merged": false,
+      "head": {
+        "sha": "0a48c1120b1c2d3e4f5061728394a5b6c7d8e9f6",
+        "ref": "agent-1/pul-161-deps"
+      }
+    },
+    "changes": {
+      "body": {
+        "from": "Old description"
+      }
+    }
+  }
+}

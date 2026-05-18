@@ -1,0 +1,26 @@
+{
+  "id": "33000000031",
+  "type": "PullRequestReviewEvent",
+  "actor": {"id": 100, "login": "reviewer"},
+  "repo": {"id": 1, "name": "rabbeet/Pulse", "url": "https://api.github.com/repos/rabbeet/Pulse"},
+  "public": true,
+  "created_at": "2026-05-17T18:31:11Z",
+  "payload": {
+    "action": "submitted",
+    "review": {
+      "id": 555556,
+      "state": "approved",
+      "body": "Looks great."
+    },
+    "pull_request": {
+      "id": 444449,
+      "number": 535,
+      "html_url": "https://github.com/rabbeet/Pulse/pull/535",
+      "title": "[PUL-163] docs(readme): update setup",
+      "head": {
+        "sha": "22b8c1120b1c2d3e4f5061728394a5b6c7d8e9f8",
+        "ref": "agent-1/pul-163-docs"
+      }
+    }
+  }
+}
