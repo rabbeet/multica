@@ -68,3 +68,31 @@ ORDER BY updated_at DESC;
 -- name: DeleteIssueSkillState :exec
 DELETE FROM issue_skill_state
 WHERE issue_id = $1 AND skill_slug = $2;
+
+-- name: CleanupStaleIssueSkillStates :many
+-- PUL-182: delete `in_progress` rows whose `started_at` is older than the
+-- supplied TTL. A skill that crashed before calling `done` (claude-code
+-- session crash, agent worktree force-killed, rate-limit on the claude
+-- API) leaves an "in_progress" chip in the Inbox forever; this query is
+-- the cron-side cleanup invoked from runSkillStateCleanupScheduler
+-- every 15 minutes (default TTL 24h, overridable via
+-- ISSUE_SKILL_STATE_STALE_TTL).
+--
+-- `make_interval(secs => ...)` takes the typed int64 directly so we do
+-- not have to round-trip through text concatenation. PG evaluates
+-- `now() - interval` once per row at executor time.
+--
+-- `status = 'in_progress'` is intentionally strict — `done` rows are
+-- the historical record used by LastSkillChip and SkillHistory and must
+-- survive indefinitely. If PUL-177's CHECK constraint ever gains a
+-- `stale` enum value (out of scope for v1), this query needs an
+-- explicit re-decision about whether `stale` should also be swept.
+--
+-- RETURNING the deleted rows so the scheduler can log per-row debug
+-- info ("which phantom chip did we just remove?") without a separate
+-- SELECT. The slice is empty on a no-op tick, so the scheduler's
+-- `slog.Info` only fires when something was actually cleaned.
+DELETE FROM issue_skill_state
+WHERE status = 'in_progress'
+  AND started_at < now() - make_interval(secs => @ttl_seconds::bigint)
+RETURNING issue_id, skill_slug, started_at;
