@@ -212,7 +212,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// GetIssueByNumber). Single-tenant by construction; multi-
 	// workspace routing via a repo→workspace mapping table is a
 	// follow-up.
-	startCascadeBackground(pool, queries, h.TaskService, nil)
+	startCascadeBackground(pool, queries, h.TaskService, bus, nil)
 
 	// WebSocket
 	mc := &membershipChecker{queries: queries}
