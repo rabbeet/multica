@@ -53,12 +53,16 @@ func TestExtractSkillCandidates(t *testing.T) {
 		{"three distinct slugs", "/foo-bar /a-b /x", []string{"foo-bar", "a-b", "x"}},
 		{"slash with uppercase or digit start gets rejected by regex shape",
 			"/Office-Hours /9skill", []string{"9skill"}},
-		// PUL-181 known limitation: regex matches inside blockquotes and
-		// inline code spans. Tests freeze the current behavior so a
-		// future markdown-aware swap is an explicit diff, not a silent
-		// behavior change.
+		// PUL-181 known limitation: regex matches inside blockquotes
+		// because the `>` line marker is followed by whitespace before
+		// the slash. Frozen here so a future markdown-aware swap is
+		// an explicit diff, not a silent behavior change.
 		{"blockquote false-positive (PUL-181)", "> /office-hours", []string{"office-hours"}},
-		{"inline code false-positive (PUL-181)", "`/office-hours`", []string{"office-hours"}},
+		// Inline-code backticks are NOT whitespace, so the regex
+		// already excludes them — locked in as the documented
+		// correct behavior. PUL-181's parser swap will add fenced
+		// code-block coverage on top of this baseline.
+		{"inline code is correctly excluded (regex needs whitespace)", "`/office-hours`", nil},
 	}
 
 	for _, c := range cases {

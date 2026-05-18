@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/multica-ai/multica/server/internal/middleware"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // PUL-177 skill_state endpoints + comment auto-detect integration.
@@ -353,8 +356,13 @@ func TestInboxIncludesPhaseAndLatestSkill(t *testing.T) {
 
 	postSkillState(t, issueID, map[string]any{"skill": "office-hours", "status": "in_progress"})
 
+	// ListInbox reads workspace_id from request context (set by the
+	// workspace middleware in real traffic); newRequest only sets the
+	// X-Workspace-ID header, so we have to inject the context ourselves
+	// to mirror what the middleware would have done.
 	w := httptest.NewRecorder()
 	req := newRequest("GET", "/api/inbox", nil)
+	req = req.WithContext(middleware.SetMemberContext(req.Context(), testWorkspaceID, db.Member{}))
 	testHandler.ListInbox(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("ListInbox: expected 200, got %d: %s", w.Code, w.Body.String())
