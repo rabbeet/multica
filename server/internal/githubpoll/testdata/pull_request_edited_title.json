@@ -11,7 +11,7 @@
     "pull_request": {
       "id": 444446,
       "number": 532,
-      "html_url": "https://github.com/rabbeet/Pulse/pull/532",
+      "url": "https://api.github.com/repos/rabbeet/Pulse/pulls/532",
       "title": "[PUL-159] feat(router): add cascading lookup",
       "merged": false,
       "head": {

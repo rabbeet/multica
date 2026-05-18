@@ -17,6 +17,15 @@ import (
 // Event. Tests use this to keep the table-driven cases readable —
 // the fixtures themselves are byte-identical (modulo whitespace) to
 // what gh api /repos/.../events returns.
+//
+// Discipline: every JSON file under testdata/ MUST be a faithful
+// capture of a real REST /events response. Do NOT copy-paste from
+// webhook deliveries — the two channels share an event type but
+// differ in payload shape (notably, REST /events strips html_url
+// from pull_request objects, while webhook deliveries include it).
+// If you add a new fixture, get it from `gh api /repos/{r}/events`,
+// not from a webhook log. PUL-183 traced a prod outage to a fixture
+// set that hid behind this exact gap.
 func loadFixture(t *testing.T, name string) Event {
 	t.Helper()
 	path := filepath.Join("testdata", name)
@@ -46,12 +55,14 @@ func (f fakeResolver) LookupPRsByCommit(_ context.Context, _, _ string) ([]githu
 func TestClassify_Table(t *testing.T) {
 	cases := []struct {
 		name        string
-		fixture     string
+		fixture     string         // when set, loaded from testdata/
+		inlineEvent *Event         // when set, used instead of fixture (for cases with no on-disk JSON)
 		repo        string
 		resolver    github.PRResolver
 		wantType    string // empty → ErrSkip
 		wantErrIs   error  // non-nil → assertion target
 		wantPRNum   int
+		wantPRURL   string // expected PRURL; verifies the html_url reconstruction path
 		wantHeadSHA string
 		wantBranch  string
 	}{
@@ -113,11 +124,16 @@ func TestClassify_Table(t *testing.T) {
 			wantHeadSHA: "cd38c1120b1c2d3e4f5061728394a5b6c7d8e9f3",
 		},
 		{
-			name:        "pull_request closed merged → pr_merged",
+			// Regression for PUL-183 (pr_merged path): fixture mirrors
+			// REST /events shape — no html_url on pull_request — and
+			// the test asserts PRURL is reconstructed from repo +
+			// number. Pre-fix, this case returned ErrSchemaMismatch.
+			name:        "pull_request closed merged → pr_merged (reconstructed URL)",
 			fixture:     "pull_request_merged.json",
 			repo:        "rabbeet/Pulse",
 			wantType:    webhooks.EventTypePRMerged,
 			wantPRNum:   530,
+			wantPRURL:   "https://github.com/rabbeet/Pulse/pull/530",
 			wantHeadSHA: "cd38c1120b1c2d3e4f5061728394a5b6c7d8e9f3",
 			wantBranch:  "agent-1/pul-157-fix",
 		},
@@ -128,11 +144,12 @@ func TestClassify_Table(t *testing.T) {
 			wantErrIs: ErrSkip,
 		},
 		{
-			name:       "pull_request edited title → pr_title_edit",
+			name:       "pull_request edited title → pr_title_edit (reconstructed URL)",
 			fixture:    "pull_request_edited_title.json",
 			repo:       "rabbeet/Pulse",
 			wantType:   webhooks.EventTypePRTitleEdit,
 			wantPRNum:  532,
+			wantPRURL:  "https://github.com/rabbeet/Pulse/pull/532",
 			wantBranch: "agent-1/pul-159-router-lookup",
 		},
 		{
@@ -142,11 +159,15 @@ func TestClassify_Table(t *testing.T) {
 			wantErrIs: ErrSkip,
 		},
 		{
-			name:       "pull_request_review changes_requested → pr_review_change",
+			// Regression for PUL-183 (pr_review_change path): same shape
+			// quirk as pr_merged above — REST /events strips html_url,
+			// classifier must reconstruct.
+			name:       "pull_request_review changes_requested → pr_review_change (reconstructed URL)",
 			fixture:    "pull_request_review_changes_requested.json",
 			repo:       "rabbeet/Pulse",
 			wantType:   webhooks.EventTypePRReviewChange,
 			wantPRNum:  534,
+			wantPRURL:  "https://github.com/rabbeet/Pulse/pull/534",
 			wantBranch: "agent-1/pul-162-perf",
 		},
 		{
@@ -161,11 +182,67 @@ func TestClassify_Table(t *testing.T) {
 			repo:      "rabbeet/Pulse",
 			wantErrIs: ErrSkip,
 		},
+		{
+			// Negative guard for PUL-183: after dropping the html_url
+			// half of the schema check, `number == 0` is the only
+			// remaining contract violation that surfaces as
+			// SchemaMismatch (loud, alertable). If a future refactor
+			// silently drops this check, this test fails.
+			name: "pull_request missing number → schema_mismatch",
+			inlineEvent: &Event{
+				ID:   "33000000099",
+				Type: "PullRequestEvent",
+				Payload: json.RawMessage(`{
+					"action": "closed",
+					"pull_request": {
+						"id": 999999,
+						"merged": true,
+						"head": {"sha": "deadbeef", "ref": "x"}
+					}
+				}`),
+				Repo: struct {
+					Name string `json:"name"`
+				}{Name: "rabbeet/Pulse"},
+			},
+			repo:      "rabbeet/Pulse",
+			wantErrIs: ErrSchemaMismatch,
+		},
+		{
+			// Negative guard mirroring the case above, for the review
+			// path. Both classifiers share the same post-fix contract
+			// (`number` required, everything else reconstructable).
+			name: "pull_request_review missing pull_request.number → schema_mismatch",
+			inlineEvent: &Event{
+				ID:   "33000000098",
+				Type: "PullRequestReviewEvent",
+				Payload: json.RawMessage(`{
+					"action": "submitted",
+					"review": {"state": "changes_requested"},
+					"pull_request": {
+						"id": 999998,
+						"head": {"sha": "deadbeef", "ref": "x"}
+					}
+				}`),
+				Repo: struct {
+					Name string `json:"name"`
+				}{Name: "rabbeet/Pulse"},
+			},
+			repo:      "rabbeet/Pulse",
+			wantErrIs: ErrSchemaMismatch,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ev := loadFixture(t, tc.fixture)
+			var ev Event
+			switch {
+			case tc.inlineEvent != nil:
+				ev = *tc.inlineEvent
+			case tc.fixture != "":
+				ev = loadFixture(t, tc.fixture)
+			default:
+				t.Fatalf("test case %q has neither fixture nor inlineEvent", tc.name)
+			}
 			c := Classifier{Resolver: tc.resolver}
 			got, err := c.Classify(context.Background(), tc.repo, ev)
 
@@ -189,6 +266,9 @@ func TestClassify_Table(t *testing.T) {
 			}
 			if tc.wantPRNum != 0 && got.PRNumber != tc.wantPRNum {
 				t.Errorf("PRNumber = %d, want %d", got.PRNumber, tc.wantPRNum)
+			}
+			if tc.wantPRURL != "" && got.PRURL != tc.wantPRURL {
+				t.Errorf("PRURL = %q, want %q", got.PRURL, tc.wantPRURL)
 			}
 			if tc.wantHeadSHA != "" && got.HeadSHA != tc.wantHeadSHA {
 				t.Errorf("HeadSHA = %q, want %q", got.HeadSHA, tc.wantHeadSHA)

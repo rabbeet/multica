@@ -107,9 +107,9 @@ func (c Classifier) Classify(ctx context.Context, repo string, e Event) (*webhoo
 	case "CheckRunEvent":
 		return c.classifyCheckRun(ctx, repo, eventID, e.Payload)
 	case "PullRequestEvent":
-		return c.classifyPullRequest(eventID, e.Payload)
+		return c.classifyPullRequest(repo, eventID, e.Payload)
 	case "PullRequestReviewEvent":
-		return c.classifyPullRequestReview(eventID, e.Payload)
+		return c.classifyPullRequestReview(repo, eventID, e.Payload)
 	default:
 		// PushEvent, IssueCommentEvent, ForkEvent, etc. — not cascade
 		// triggers. Skip silently.
@@ -240,17 +240,25 @@ type pullRequestPayload struct {
 	} `json:"changes"`
 }
 
-func (c Classifier) classifyPullRequest(eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
+func (c Classifier) classifyPullRequest(repo string, eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
 	var p pullRequestPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, fmt.Errorf("%w: pull_request: %v", ErrSchemaMismatch, err)
 	}
-	if p.PullRequest.HTMLURL == "" || p.Number == 0 {
-		return nil, fmt.Errorf("%w: pull_request missing html_url or number", ErrSchemaMismatch)
+	if p.Number == 0 {
+		return nil, fmt.Errorf("%w: pull_request missing number", ErrSchemaMismatch)
+	}
+	// REST /events delivers a stripped pull_request object — the API
+	// `url` is present but `html_url` is not. Reconstruct from
+	// repo + number when the payload omits it; same approach as
+	// resolveOrInlinePRs uses for workflow_run / check_run inline PRs.
+	prURL := p.PullRequest.HTMLURL
+	if prURL == "" {
+		prURL = htmlURLForPR(repo, int(p.Number))
 	}
 	common := webhooks.TriggerEvent{
 		EventID:  eventID,
-		PRURL:    p.PullRequest.HTMLURL,
+		PRURL:    prURL,
 		PRNumber: int(p.Number),
 		PRTitle:  p.PullRequest.Title,
 		HeadSHA:  p.PullRequest.Head.SHA,
@@ -290,7 +298,7 @@ type pullRequestReviewPayload struct {
 	} `json:"pull_request"`
 }
 
-func (c Classifier) classifyPullRequestReview(eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
+func (c Classifier) classifyPullRequestReview(repo string, eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
 	var p pullRequestReviewPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, fmt.Errorf("%w: pull_request_review: %v", ErrSchemaMismatch, err)
@@ -303,13 +311,20 @@ func (c Classifier) classifyPullRequestReview(eventID uuid.UUID, raw json.RawMes
 	if !strings.EqualFold(p.Review.State, "changes_requested") {
 		return nil, ErrSkip
 	}
-	if p.PullRequest.HTMLURL == "" || p.PullRequest.Number == 0 {
-		return nil, fmt.Errorf("%w: pull_request_review missing pull_request fields", ErrSchemaMismatch)
+	if p.PullRequest.Number == 0 {
+		return nil, fmt.Errorf("%w: pull_request_review missing pull_request.number", ErrSchemaMismatch)
+	}
+	// Same REST /events shape quirk as classifyPullRequest — html_url
+	// is omitted on the pull request object; reconstruct from repo +
+	// number.
+	prURL := p.PullRequest.HTMLURL
+	if prURL == "" {
+		prURL = htmlURLForPR(repo, int(p.PullRequest.Number))
 	}
 	return &webhooks.TriggerEvent{
 		EventID:   eventID,
 		EventType: webhooks.EventTypePRReviewChange,
-		PRURL:     p.PullRequest.HTMLURL,
+		PRURL:     prURL,
 		PRNumber:  int(p.PullRequest.Number),
 		PRTitle:   p.PullRequest.Title,
 		HeadSHA:   p.PullRequest.Head.SHA,

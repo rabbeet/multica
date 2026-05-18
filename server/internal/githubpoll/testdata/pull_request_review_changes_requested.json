@@ -15,7 +15,7 @@
     "pull_request": {
       "id": 444448,
       "number": 534,
-      "html_url": "https://github.com/rabbeet/Pulse/pull/534",
+      "url": "https://api.github.com/repos/rabbeet/Pulse/pulls/534",
       "title": "[PUL-162] perf(router): cached lookup",
       "head": {
         "sha": "11b8c1120b1c2d3e4f5061728394a5b6c7d8e9f7",

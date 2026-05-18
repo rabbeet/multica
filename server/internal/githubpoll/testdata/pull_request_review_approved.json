@@ -15,7 +15,7 @@
     "pull_request": {
       "id": 444449,
       "number": 535,
-      "html_url": "https://github.com/rabbeet/Pulse/pull/535",
+      "url": "https://api.github.com/repos/rabbeet/Pulse/pulls/535",
       "title": "[PUL-163] docs(readme): update setup",
       "head": {
         "sha": "22b8c1120b1c2d3e4f5061728394a5b6c7d8e9f8",
