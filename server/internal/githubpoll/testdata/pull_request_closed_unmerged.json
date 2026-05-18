@@ -11,7 +11,7 @@
     "pull_request": {
       "id": 444445,
       "number": 531,
-      "html_url": "https://github.com/rabbeet/Pulse/pull/531",
+      "url": "https://api.github.com/repos/rabbeet/Pulse/pulls/531",
       "title": "[PUL-158] wip(scope): repair scope filter",
       "merged": false,
       "head": {

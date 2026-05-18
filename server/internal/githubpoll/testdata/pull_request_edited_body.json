@@ -11,7 +11,7 @@
     "pull_request": {
       "id": 444447,
       "number": 533,
-      "html_url": "https://github.com/rabbeet/Pulse/pull/533",
+      "url": "https://api.github.com/repos/rabbeet/Pulse/pulls/533",
       "title": "[PUL-161] chore(deps): bump phpunit",
       "merged": false,
       "head": {
