@@ -29,21 +29,36 @@ func (q *Queries) CountComments(ctx context.Context, arg CountCommentsParams) (i
 }
 
 const createComment = `-- name: CreateComment :one
-INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, parent_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id
+INSERT INTO comment (
+    issue_id, workspace_id, author_type, author_id, content, type, parent_id,
+    meta, source_history_id
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6, $7,
+    COALESCE($8::jsonb, '{}'::jsonb),
+    $9
+)
+RETURNING id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id
 `
 
 type CreateCommentParams struct {
-	IssueID     pgtype.UUID `json:"issue_id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	AuthorType  string      `json:"author_type"`
-	AuthorID    pgtype.UUID `json:"author_id"`
-	Content     string      `json:"content"`
-	Type        string      `json:"type"`
-	ParentID    pgtype.UUID `json:"parent_id"`
+	IssueID         pgtype.UUID `json:"issue_id"`
+	WorkspaceID     pgtype.UUID `json:"workspace_id"`
+	AuthorType      string      `json:"author_type"`
+	AuthorID        pgtype.UUID `json:"author_id"`
+	Content         string      `json:"content"`
+	Type            string      `json:"type"`
+	ParentID        pgtype.UUID `json:"parent_id"`
+	Meta            []byte      `json:"meta"`
+	SourceHistoryID pgtype.Int8 `json:"source_history_id"`
 }
 
+// PUL-164 extends this with two optional columns: meta (JSONB, default
+// '{}'::jsonb when omitted) and source_history_id (BIGINT NULL, used by
+// the child_progress fan-out worker for idempotency keyed on
+// issue_status_history.id). Existing call sites that pass only the original
+// seven params continue to work — sqlc.narg() resolves the new fields to
+// their column defaults.
 func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (Comment, error) {
 	row := q.db.QueryRow(ctx, createComment,
 		arg.IssueID,
@@ -53,6 +68,8 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 		arg.Content,
 		arg.Type,
 		arg.ParentID,
+		arg.Meta,
+		arg.SourceHistoryID,
 	)
 	var i Comment
 	err := row.Scan(
@@ -66,6 +83,8 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 		&i.UpdatedAt,
 		&i.ParentID,
 		&i.WorkspaceID,
+		&i.Meta,
+		&i.SourceHistoryID,
 	)
 	return i, err
 }
@@ -80,7 +99,7 @@ func (q *Queries) DeleteComment(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getComment = `-- name: GetComment :one
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id FROM comment
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id FROM comment
 WHERE id = $1
 `
 
@@ -98,12 +117,14 @@ func (q *Queries) GetComment(ctx context.Context, id pgtype.UUID) (Comment, erro
 		&i.UpdatedAt,
 		&i.ParentID,
 		&i.WorkspaceID,
+		&i.Meta,
+		&i.SourceHistoryID,
 	)
 	return i, err
 }
 
 const getCommentInWorkspace = `-- name: GetCommentInWorkspace :one
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id FROM comment
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id FROM comment
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -126,6 +147,8 @@ func (q *Queries) GetCommentInWorkspace(ctx context.Context, arg GetCommentInWor
 		&i.UpdatedAt,
 		&i.ParentID,
 		&i.WorkspaceID,
+		&i.Meta,
+		&i.SourceHistoryID,
 	)
 	return i, err
 }
@@ -174,7 +197,7 @@ func (q *Queries) HasAgentRepliedInThread(ctx context.Context, arg HasAgentRepli
 }
 
 const listCommentsAfter = `-- name: ListCommentsAfter :many
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id FROM comment
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id FROM comment
 WHERE issue_id = $1 AND workspace_id = $2
   AND (created_at, id) > ($3::timestamptz, $4::uuid)
 ORDER BY created_at ASC, id ASC
@@ -218,6 +241,8 @@ func (q *Queries) ListCommentsAfter(ctx context.Context, arg ListCommentsAfterPa
 			&i.UpdatedAt,
 			&i.ParentID,
 			&i.WorkspaceID,
+			&i.Meta,
+			&i.SourceHistoryID,
 		); err != nil {
 			return nil, err
 		}
@@ -230,7 +255,7 @@ func (q *Queries) ListCommentsAfter(ctx context.Context, arg ListCommentsAfterPa
 }
 
 const listCommentsBefore = `-- name: ListCommentsBefore :many
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id FROM comment
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id FROM comment
 WHERE issue_id = $1 AND workspace_id = $2
   AND (created_at, id) < ($3::timestamptz, $4::uuid)
 ORDER BY created_at DESC, id DESC
@@ -273,6 +298,8 @@ func (q *Queries) ListCommentsBefore(ctx context.Context, arg ListCommentsBefore
 			&i.UpdatedAt,
 			&i.ParentID,
 			&i.WorkspaceID,
+			&i.Meta,
+			&i.SourceHistoryID,
 		); err != nil {
 			return nil, err
 		}
@@ -285,7 +312,7 @@ func (q *Queries) ListCommentsBefore(ctx context.Context, arg ListCommentsBefore
 }
 
 const listCommentsLatest = `-- name: ListCommentsLatest :many
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id FROM comment
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id FROM comment
 WHERE issue_id = $1 AND workspace_id = $2
 ORDER BY created_at DESC, id DESC
 LIMIT $3
@@ -319,6 +346,8 @@ func (q *Queries) ListCommentsLatest(ctx context.Context, arg ListCommentsLatest
 			&i.UpdatedAt,
 			&i.ParentID,
 			&i.WorkspaceID,
+			&i.Meta,
+			&i.SourceHistoryID,
 		); err != nil {
 			return nil, err
 		}
@@ -331,7 +360,7 @@ func (q *Queries) ListCommentsLatest(ctx context.Context, arg ListCommentsLatest
 }
 
 const listCommentsPaginated = `-- name: ListCommentsPaginated :many
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id FROM comment
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id FROM comment
 WHERE issue_id = $1 AND workspace_id = $2
 ORDER BY created_at ASC
 LIMIT $3 OFFSET $4
@@ -369,6 +398,8 @@ func (q *Queries) ListCommentsPaginated(ctx context.Context, arg ListCommentsPag
 			&i.UpdatedAt,
 			&i.ParentID,
 			&i.WorkspaceID,
+			&i.Meta,
+			&i.SourceHistoryID,
 		); err != nil {
 			return nil, err
 		}
@@ -381,7 +412,7 @@ func (q *Queries) ListCommentsPaginated(ctx context.Context, arg ListCommentsPag
 }
 
 const listCommentsSince = `-- name: ListCommentsSince :many
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id FROM comment
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id FROM comment
 WHERE issue_id = $1 AND workspace_id = $2 AND created_at > $3
 ORDER BY created_at ASC
 `
@@ -412,6 +443,8 @@ func (q *Queries) ListCommentsSince(ctx context.Context, arg ListCommentsSincePa
 			&i.UpdatedAt,
 			&i.ParentID,
 			&i.WorkspaceID,
+			&i.Meta,
+			&i.SourceHistoryID,
 		); err != nil {
 			return nil, err
 		}
@@ -424,7 +457,7 @@ func (q *Queries) ListCommentsSince(ctx context.Context, arg ListCommentsSincePa
 }
 
 const listCommentsSincePaginated = `-- name: ListCommentsSincePaginated :many
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id FROM comment
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id FROM comment
 WHERE issue_id = $1 AND workspace_id = $2 AND created_at > $3
 ORDER BY created_at ASC
 LIMIT $4 OFFSET $5
@@ -464,6 +497,8 @@ func (q *Queries) ListCommentsSincePaginated(ctx context.Context, arg ListCommen
 			&i.UpdatedAt,
 			&i.ParentID,
 			&i.WorkspaceID,
+			&i.Meta,
+			&i.SourceHistoryID,
 		); err != nil {
 			return nil, err
 		}
@@ -480,7 +515,7 @@ UPDATE comment SET
     content = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id
+RETURNING id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, meta, source_history_id
 `
 
 type UpdateCommentParams struct {
@@ -502,6 +537,8 @@ func (q *Queries) UpdateComment(ctx context.Context, arg UpdateCommentParams) (C
 		&i.UpdatedAt,
 		&i.ParentID,
 		&i.WorkspaceID,
+		&i.Meta,
+		&i.SourceHistoryID,
 	)
 	return i, err
 }

@@ -31,6 +31,12 @@ type CommentResponse struct {
 	UpdatedAt   string               `json:"updated_at"`
 	Reactions   []ReactionResponse   `json:"reactions"`
 	Attachments []AttachmentResponse `json:"attachments"`
+	// PUL-164: structured payload (currently for type='child_progress') and
+	// the audit-trail pointer back to issue_status_history. Both fields are
+	// `omitempty` so existing clients see the same wire format for the
+	// 99.9% case of regular type='comment' rows.
+	Meta            json.RawMessage `json:"meta,omitempty"`
+	SourceHistoryID *int64          `json:"source_history_id,omitempty"`
 }
 
 func commentToResponse(c db.Comment, reactions []ReactionResponse, attachments []AttachmentResponse) CommentResponse {
@@ -40,18 +46,31 @@ func commentToResponse(c db.Comment, reactions []ReactionResponse, attachments [
 	if attachments == nil {
 		attachments = []AttachmentResponse{}
 	}
+	// Meta is stored as JSONB ([]byte). Pass through as RawMessage; empty
+	// or '{}' rows stay invisible to clients thanks to omitempty above.
+	var meta json.RawMessage
+	if len(c.Meta) > 0 && string(c.Meta) != "{}" {
+		meta = json.RawMessage(c.Meta)
+	}
+	var sourceHistoryID *int64
+	if c.SourceHistoryID.Valid {
+		v := c.SourceHistoryID.Int64
+		sourceHistoryID = &v
+	}
 	return CommentResponse{
-		ID:          uuidToString(c.ID),
-		IssueID:     uuidToString(c.IssueID),
-		AuthorType:  c.AuthorType,
-		AuthorID:    uuidToString(c.AuthorID),
-		Content:     c.Content,
-		Type:        c.Type,
-		ParentID:    uuidToPtr(c.ParentID),
-		CreatedAt:   timestampToString(c.CreatedAt),
-		UpdatedAt:   timestampToString(c.UpdatedAt),
-		Reactions:   reactions,
-		Attachments: attachments,
+		ID:              uuidToString(c.ID),
+		IssueID:         uuidToString(c.IssueID),
+		AuthorType:      c.AuthorType,
+		AuthorID:        uuidToString(c.AuthorID),
+		Content:         c.Content,
+		Type:            c.Type,
+		ParentID:        uuidToPtr(c.ParentID),
+		CreatedAt:       timestampToString(c.CreatedAt),
+		UpdatedAt:       timestampToString(c.UpdatedAt),
+		Reactions:       reactions,
+		Attachments:     attachments,
+		Meta:            meta,
+		SourceHistoryID: sourceHistoryID,
 	}
 }
 
@@ -241,6 +260,17 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	if req.Type == service.CommentTypeWakeUp {
 		writeError(w, http.StatusBadRequest,
 			"comment type 'wake_up' is reserved for the reminder scheduler")
+		return
+	}
+
+	// PUL-164: same defence for 'child_progress'. Posted only by the
+	// child_progress fan-out worker (cmd/server/child_progress_scheduler.go)
+	// after a child issue's status changes. Accepting it from this HTTP path
+	// would let a caller forge fake fan-out comments and dodge the
+	// suppression contract on shouldEnqueueOnComment.
+	if req.Type == service.CommentTypeChildProgress {
+		writeError(w, http.StatusBadRequest,
+			"comment type 'child_progress' is reserved for the child-progress scheduler")
 		return
 	}
 

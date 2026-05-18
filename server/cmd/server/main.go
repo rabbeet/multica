@@ -321,6 +321,9 @@ func main() {
 	go runAutopilotScheduler(autopilotCtx, queries, autopilotSvc)
 	go runAutopilotFailureMonitor(autopilotCtx, queries, bus, envFailureMonitorConfig())
 	go runReminderScheduler(autopilotCtx, queries, bus, commentSvc)
+	// PUL-164 child-progress fan-out worker. Shares autopilotCtx so it shuts
+	// down with the rest of the schedulers on server stop.
+	go runChildProgressScheduler(autopilotCtx, queries, bus, commentSvc)
 	go runDBStatsLogger(sweepCtx, pool)
 
 	if metricsServer != nil {

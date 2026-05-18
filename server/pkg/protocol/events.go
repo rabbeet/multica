@@ -116,6 +116,15 @@ const (
 	EventReminderFired     = "reminder:fired"
 	EventReminderCancelled = "reminder:cancelled"
 
+	// EventChildProgress is published by the child_progress fan-out worker
+	// (PUL-164) when an ancestor of a recently-status-changed child issue
+	// gets a system-authored comment of type='child_progress'. The payload
+	// includes the standard comment fields so UI can render the new card,
+	// plus meta.kind='child_progress' for the type-switch on render. Most
+	// clients can use comment:created instead — this event is for clients
+	// that filter only fan-out activity (e.g. a "child activity" digest).
+	EventChildProgress = "child_progress"
+
 	// Daemon events
 	EventDaemonHeartbeat     = "daemon:heartbeat"
 	EventDaemonHeartbeatAck  = "daemon:heartbeat_ack"

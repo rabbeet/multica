@@ -155,6 +155,28 @@ type AutopilotTrigger struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type CascadePendingEvent struct {
+	IssueID        pgtype.UUID        `json:"issue_id"`
+	EventID        pgtype.UUID        `json:"event_id"`
+	TriggerContext []byte             `json:"trigger_context"`
+	EnqueuedAt     pgtype.Timestamptz `json:"enqueued_at"`
+}
+
+type CascadeRetrigger struct {
+	ID          int64              `json:"id"`
+	EventID     pgtype.UUID        `json:"event_id"`
+	IssueID     pgtype.UUID        `json:"issue_id"`
+	PrUrl       string             `json:"pr_url"`
+	PrNumber    int32              `json:"pr_number"`
+	HeadSha     string             `json:"head_sha"`
+	EventType   string             `json:"event_type"`
+	FiredAt     pgtype.Timestamptz `json:"fired_at"`
+	ProcessedAt pgtype.Timestamptz `json:"processed_at"`
+	Action      pgtype.Text        `json:"action"`
+	PrTitle     pgtype.Text        `json:"pr_title"`
+	Branch      pgtype.Text        `json:"branch"`
+}
+
 type ChatMessage struct {
 	ID            pgtype.UUID        `json:"id"`
 	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
@@ -182,16 +204,18 @@ type ChatSession struct {
 }
 
 type Comment struct {
-	ID          pgtype.UUID        `json:"id"`
-	IssueID     pgtype.UUID        `json:"issue_id"`
-	AuthorType  string             `json:"author_type"`
-	AuthorID    pgtype.UUID        `json:"author_id"`
-	Content     string             `json:"content"`
-	Type        string             `json:"type"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	ParentID    pgtype.UUID        `json:"parent_id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	ID              pgtype.UUID        `json:"id"`
+	IssueID         pgtype.UUID        `json:"issue_id"`
+	AuthorType      string             `json:"author_type"`
+	AuthorID        pgtype.UUID        `json:"author_id"`
+	Content         string             `json:"content"`
+	Type            string             `json:"type"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ParentID        pgtype.UUID        `json:"parent_id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	Meta            []byte             `json:"meta"`
+	SourceHistoryID pgtype.Int8        `json:"source_history_id"`
 }
 
 type CommentReaction struct {
@@ -275,6 +299,28 @@ type Issue struct {
 	OriginID           pgtype.UUID        `json:"origin_id"`
 	FirstExecutedAt    pgtype.Timestamptz `json:"first_executed_at"`
 	DeployedAt         pgtype.Timestamptz `json:"deployed_at"`
+	CascadeState       pgtype.Text        `json:"cascade_state"`
+	CascadeStartedAt   pgtype.Timestamptz `json:"cascade_started_at"`
+	CascadeLastEventAt pgtype.Timestamptz `json:"cascade_last_event_at"`
+	CascadeProgress    []byte             `json:"cascade_progress"`
+}
+
+type IssueChildProgressOutbox struct {
+	ID              pgtype.UUID        `json:"id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	SourceHistoryID int64              `json:"source_history_id"`
+	ChildIssueID    pgtype.UUID        `json:"child_issue_id"`
+	AncestorChain   []pgtype.UUID      `json:"ancestor_chain"`
+	PrevStatus      string             `json:"prev_status"`
+	NewStatus       string             `json:"new_status"`
+	ActorID         pgtype.UUID        `json:"actor_id"`
+	ActorType       pgtype.Text        `json:"actor_type"`
+	Status          string             `json:"status"`
+	RetryCount      int32              `json:"retry_count"`
+	LastError       pgtype.Text        `json:"last_error"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ClaimedAt       pgtype.Timestamptz `json:"claimed_at"`
+	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
 }
 
 type IssueDependency struct {
@@ -303,13 +349,6 @@ type IssueReaction struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
-// IssueReminder is hand-mirrored from migration 076_issue_reminder.up.sql
-// (PUL-154). The file is otherwise sqlc-generated, but the cascade-related
-// types (CascadePendingEvent, CascadeRetrigger) are deliberately omitted
-// from the generated set per the team convention established in PUL-102
-// (cascade uses raw pgxpool, not sqlc). Regenerating the full models.go
-// would silently break that. Maintaining IssueReminder here as a manual
-// addition mirrors how those callers handle the same constraint.
 type IssueReminder struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
