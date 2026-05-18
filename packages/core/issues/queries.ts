@@ -33,6 +33,8 @@ export const issueKeys = {
       ? (["issues", "timeline", issueId, "around", around] as const)
       : (["issues", "timeline", issueId] as const),
   reactions: (issueId: string) => ["issues", "reactions", issueId] as const,
+  /** PUL-177 — SkillHistory panel data: per-(issue, skill) state rows. */
+  skillStates: (issueId: string) => ["issues", "skill-states", issueId] as const,
   subscribers: (issueId: string) =>
     ["issues", "subscribers", issueId] as const,
   usage: (issueId: string) => ["issues", "usage", issueId] as const,
@@ -116,6 +118,17 @@ export function issueDetailOptions(wsId: string, id: string) {
   return queryOptions({
     queryKey: issueKeys.detail(wsId, id),
     queryFn: () => api.getIssue(id),
+  });
+}
+
+// PUL-177 SkillHistory panel data. Lives on the issue detail page,
+// so it's lazily fetched per-issue rather than batched with the
+// inbox list (the Inbox already gets latest_skill via the CTE in
+// ListInboxItems).
+export function issueSkillStatesOptions(issueId: string) {
+  return queryOptions({
+    queryKey: issueKeys.skillStates(issueId),
+    queryFn: () => api.listIssueSkillStates(issueId),
   });
 }
 

@@ -17,6 +17,8 @@ import type {
   AgentRunCount,
   AgentRuntime,
   InboxItem,
+  SkillState,
+  SkillStatus,
   IssueSubscriber,
   Comment,
   Reaction,
@@ -577,6 +579,31 @@ export class ApiClient {
       method: "DELETE",
       body: JSON.stringify({ emoji }),
     });
+  }
+
+  // PUL-177 — per-(issue, skill) state for Inbox phase + last-applied
+  // chips and the SkillHistory panel on the issue detail page.
+  // Backed by server/internal/handler/skill_state.go.
+  async listIssueSkillStates(issueId: string): Promise<SkillState[]> {
+    return this.fetch(`/api/issues/${issueId}/skill-states`);
+  }
+
+  async setIssueSkillState(
+    issueId: string,
+    skill: string,
+    status: SkillStatus,
+  ): Promise<SkillState> {
+    return this.fetch(`/api/issues/${issueId}/skill-state`, {
+      method: "POST",
+      body: JSON.stringify({ skill, status }),
+    });
+  }
+
+  async deleteIssueSkillState(issueId: string, skill: string): Promise<void> {
+    await this.fetch(
+      `/api/issues/${issueId}/skill-state?skill=${encodeURIComponent(skill)}`,
+      { method: "DELETE" },
+    );
   }
 
   // Subscribers

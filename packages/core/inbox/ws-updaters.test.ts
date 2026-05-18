@@ -28,6 +28,11 @@ function makeItem(
     archived: false,
     created_at: "2025-01-01T00:00:00Z",
     details: null,
+    // PUL-177: phase is always present on the wire (server-derived
+    // from issue.status with a backlog default), and latest_skill
+    // defaults to null for tickets without skill_state history.
+    phase: "backlog",
+    latest_skill: null,
     ...overrides,
   };
 }

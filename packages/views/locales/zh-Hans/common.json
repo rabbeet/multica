@@ -3,5 +3,26 @@
   "cancel": "取消",
   "delete": "删除",
   "confirm": "确认",
-  "loading": "加载中..."
+  "loading": "加载中...",
+  "time": {
+    "just_now": "刚刚",
+    "minutes": "{{count}} 分钟",
+    "hours": "{{count}} 小时",
+    "days": "{{count}} 天"
+  },
+  "phase": {
+    "tooltip": {
+      "backlog": "待办",
+      "planning": "规划中",
+      "coding": "开发中",
+      "review": "审核中",
+      "done": "已完成",
+      "blocked": "已阻塞",
+      "cancelled": "已取消"
+    }
+  },
+  "skill_chip": {
+    "in_progress": "/{{skill}} 进行中 — 开始于 {{time}}",
+    "done": "/{{skill}} 已完成 — {{time}}"
+  }
 }
