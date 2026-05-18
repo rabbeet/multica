@@ -55,8 +55,21 @@ SELECT * FROM comment
 WHERE id = $1 AND workspace_id = $2;
 
 -- name: CreateComment :one
-INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, parent_id)
-VALUES ($1, $2, $3, $4, $5, $6, sqlc.narg(parent_id))
+-- PUL-164 extends this with two optional columns: meta (JSONB, default
+-- '{}'::jsonb when omitted) and source_history_id (BIGINT NULL, used by
+-- the child_progress fan-out worker for idempotency keyed on
+-- issue_status_history.id). Existing call sites that pass only the original
+-- seven params continue to work — sqlc.narg() resolves the new fields to
+-- their column defaults.
+INSERT INTO comment (
+    issue_id, workspace_id, author_type, author_id, content, type, parent_id,
+    meta, source_history_id
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6, sqlc.narg(parent_id),
+    COALESCE(sqlc.narg(meta)::jsonb, '{}'::jsonb),
+    sqlc.narg(source_history_id)
+)
 RETURNING *;
 
 -- name: UpdateComment :one
