@@ -5,11 +5,40 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/webhooks"
 )
+
+// repoNamePattern enforces the GitHub "owner/repo" shape. Owner and
+// repo each match GitHub's actual character set (alphanumeric, dot,
+// hyphen, underscore) — anything else is rejected so that path
+// fragments like "rabbeet/Pulse/../admin" cannot slip through
+// MULTICA_GITHUB_POLL_REPOS into client.buildEventsURL and resolve
+// to a different repo after URL normalization.
+//
+// The pattern alone is not sufficient: "../foo" matches it (each
+// component is non-empty and uses only allowed characters), but
+// resolves to a different repo after GitHub normalizes the URL.
+// isValidRepoName layers an extra check for that on top.
+var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+// isValidRepoName returns true iff the repo string is shaped
+// "owner/name" and neither component is "." or ".." (the
+// path-traversal escape hatches that pattern alone admits).
+func isValidRepoName(repo string) bool {
+	if !repoNamePattern.MatchString(repo) {
+		return false
+	}
+	slash := strings.IndexByte(repo, '/')
+	owner, name := repo[:slash], repo[slash+1:]
+	if owner == "." || owner == ".." || name == "." || name == ".." {
+		return false
+	}
+	return true
+}
 
 // Sink consumes classified TriggerEvents. PR2 ships LoggingSink, a
 // dry-run sink that only logs. PR3 swaps in a CascadeRetriggerSink
@@ -212,11 +241,18 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 		return
 	}
 
-	// Classify each event in oldest-first order. cursor.LastEventID
-	// advances after every successful Sink.Submit so a mid-batch
-	// crash resumes from the last persisted event_id, not the start.
-	// (Save is best-effort each loop — under DB outage we just spin
-	// re-submitting through Sink, which is idempotent.)
+	// Classify each event in oldest-first order. The on-disk cursor
+	// is Saved exactly ONCE per successful tickOne — after the
+	// whole batch processes. Per-event LastEventID bumps are
+	// in-memory only.
+	//
+	// Mid-batch crash safety relies on Sink idempotency: the next
+	// tick will re-fetch the same events (cursor on disk hasn't
+	// moved), the Sink will see the same event_id, and PR3's
+	// `INSERT ... ON CONFLICT DO NOTHING` will absorb the
+	// duplicates. The Sink-failure path below early-returns BEFORE
+	// the deferred Save, so a transient sink outage cannot
+	// silently skip events.
 	classifiedCount := 0
 	skipCount := 0
 	schemaErrCount := 0
@@ -275,9 +311,19 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 }
 
 // ParseRepos parses the comma-separated MULTICA_GITHUB_POLL_REPOS
-// value. Trims whitespace, drops empties. Returns nil on empty input
-// rather than an empty slice so callers can `if len(repos) == 0`
-// without ambiguity.
+// value. Trims whitespace, drops empties, rejects entries that do
+// not match the "owner/repo" pattern. Invalid entries are dropped
+// silently with a slog warning — operators see the resulting Repos
+// list in the startup banner so a typo (e.g. "rabbeet:Pulse") is
+// loud enough.
+//
+// Validation matters here, not just at the client.buildEventsURL
+// layer: an attacker who controls the env var could otherwise inject
+// path fragments like "rabbeet/Pulse/../admin" that GitHub's API
+// normalizes to a different repo.
+//
+// Returns nil on empty / fully-invalid input rather than an empty
+// slice so callers can `if len(repos) == 0` without ambiguity.
 func ParseRepos(csv string) []string {
 	csv = strings.TrimSpace(csv)
 	if csv == "" {
@@ -288,6 +334,12 @@ func ParseRepos(csv string) []string {
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p == "" {
+			continue
+		}
+		if !isValidRepoName(p) {
+			slog.Warn("githubpoll.parse_repos.rejected_entry",
+				"value", p,
+				"reason", "does not match owner/repo shape (alphanumeric, dot, hyphen, underscore; no '.' or '..' components)")
 			continue
 		}
 		out = append(out, p)

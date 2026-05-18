@@ -1,6 +1,10 @@
 package githubpoll
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/uuid"
+)
 
 func TestEventID_Deterministic(t *testing.T) {
 	a := EventID("rabbeet/Pulse", 123456)
@@ -23,26 +27,25 @@ func TestEventID_NumberSensitive(t *testing.T) {
 }
 
 func TestEventID_DistinctFromWebhookNamespace(t *testing.T) {
-	// The webhook adapter uses its own UUIDv5 namespace seeded with
-	// the GitHub delivery GUID. We seed with "repo:numericID". Even
-	// if a delivery GUID could syntactically equal "repo:N" the two
-	// UUIDs cannot collide because the namespaces differ. This test
-	// asserts that the poll namespace stays distinct by hashing the
-	// same seed under both namespaces and confirming non-equality.
-	// (The webhook namespace is private to its package; we hardcode
-	// its value here as a regression guard — if either side ever
-	// rotates its namespace we want this test to make the change
-	// visible in code review.)
-	seed := []byte("rabbeet/Pulse:1")
-	if got := EventID("rabbeet/Pulse", 1).String(); got == "" {
-		t.Fatalf("EventID returned zero UUID for valid inputs")
-	}
-	// Manual cross-check that the two namespaces differ. (Hardcoded
-	// from server/internal/webhooks/github/source.go.)
+	// Regression guard: the poll namespace must stay distinct from
+	// the webhook adapter's namespace, AND hashing the same seed
+	// under each namespace must produce different UUIDs. If either
+	// side rotates its namespace, this test fails until a reviewer
+	// updates the hardcoded value here — making the change visible.
+	//
+	// Hardcoded from server/internal/webhooks/github/source.go.
 	const webhookNS = "a3b6f8e2-72c5-4b8b-9d1f-8d3b9c4f5a10"
+
 	if pollNamespace.String() == webhookNS {
-		t.Errorf("poll namespace collides with webhook namespace; both = %s — must differ",
+		t.Fatalf("poll namespace collides with webhook namespace; both = %s — must differ",
 			webhookNS)
 	}
-	_ = seed
+
+	seed := []byte("shared-seed")
+	webhookSide := uuid.NewSHA1(uuid.MustParse(webhookNS), seed)
+	pollSide := uuid.NewSHA1(pollNamespace, seed)
+	if webhookSide == pollSide {
+		t.Errorf("same seed under distinct namespaces produced identical UUIDs (%s) — namespaces are not effectively distinct",
+			webhookSide)
+	}
 }

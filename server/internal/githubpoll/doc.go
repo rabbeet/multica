@@ -24,11 +24,15 @@
 //
 // Feature flags read at startup:
 //
-//	MULTICA_GITHUB_POLL_ENABLED        bool (default false)
-//	MULTICA_GITHUB_POLL_DRY_RUN        bool (default true; PR3 flips)
-//	MULTICA_GITHUB_POLL_REPOS          csv of "owner/name" (required)
-//	MULTICA_GITHUB_POLL_INTERVAL_SEC   int  (default 30)
+//	MULTICA_GITHUB_POLL_ENABLED        bool   (default false)
+//	MULTICA_GITHUB_POLL_REPOS          csv    "owner/name,owner/name" (required when ENABLED)
+//	MULTICA_GITHUB_POLL_INTERVAL_SEC   int    (default 30, 10s floor, 1h ceiling)
 //	MULTICA_GITHUB_API_TOKEN           string (PAT; PUL-141 swaps source)
+//
+// PR2 hardcodes a LoggingSink — dry-run mode is the only mode in
+// this PR. PR3 swaps in CascadeRetriggerSink; no new env var
+// controls the swap, the change is the code-level sink wired up in
+// cmd/server/githubpoll_scheduler.go.
 //
 // Auth is hidden behind TokenSource so PUL-141's GitHub App migration
 // replaces a single implementation without touching the poller.

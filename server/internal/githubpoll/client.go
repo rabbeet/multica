@@ -32,6 +32,13 @@ const defaultClientTimeout = 10 * time.Second
 // we ever paginate past it, an alert is louder than infinite walk.
 const defaultPagesLimit = 5
 
+// maxResponseBytes caps the response body the decoder will buffer.
+// GitHub's /events response is ~50KB per 100-event page; 10 MiB is
+// 200× headroom for any plausible page size and stops a malformed
+// upstream (or a transparent proxy injecting garbage) from forcing
+// us to allocate an unbounded buffer.
+const maxResponseBytes int64 = 10 << 20
+
 // ErrNotModified is returned by FetchEvents when the response was
 // 304 — nothing changed since last poll's ETag. The caller updates
 // last_polled_at but leaves last_event_id and etag untouched.
@@ -232,8 +239,13 @@ func (c *Client) fetchOnePage(ctx context.Context, repo, token, etagPrev string,
 			resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
+	// Cap body size to keep a malformed/hostile response from
+	// forcing an unbounded allocation. maxResponseBytes is ~200×
+	// the steady-state page size, so legitimate 100-event responses
+	// always fit.
+	limited := io.LimitReader(resp.Body, maxResponseBytes)
 	var events []Event
-	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+	if err := json.NewDecoder(limited).Decode(&events); err != nil {
 		if errors.Is(err, io.EOF) {
 			return nil, resp.Header.Get("ETag"), info, nil
 		}

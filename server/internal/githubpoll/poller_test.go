@@ -236,20 +236,50 @@ func TestPoller_Run_EmptyReposExitsImmediately(t *testing.T) {
 
 func TestParseRepos(t *testing.T) {
 	cases := []struct {
+		name string
 		in   string
 		want []string
 	}{
-		{"", nil},
-		{"   ", nil},
-		{",,,", nil},
-		{"rabbeet/Pulse", []string{"rabbeet/Pulse"}},
-		{" rabbeet/Pulse , rabbeet/multica ", []string{"rabbeet/Pulse", "rabbeet/multica"}},
-		{"a/b,,c/d", []string{"a/b", "c/d"}},
+		{"empty", "", nil},
+		{"whitespace", "   ", nil},
+		{"commas only", ",,,", nil},
+		{"single valid", "rabbeet/Pulse", []string{"rabbeet/Pulse"}},
+		{"two valid with whitespace", " rabbeet/Pulse , rabbeet/multica ", []string{"rabbeet/Pulse", "rabbeet/multica"}},
+		{"short names valid", "a/b,,c/d", []string{"a/b", "c/d"}},
+		{"dot and underscore valid", "my-org/.github_repo", []string{"my-org/.github_repo"}},
+		{"reject no slash", "rabbeet:Pulse", nil},
+		{"reject extra slash", "rabbeet/Pulse/foo", nil},
+		{"reject path traversal", "rabbeet/../admin", nil},
+		{"reject leading dotdot owner", "../foo", nil},
+		{"reject dot-only component", "./foo", nil},
+		{"reject query injection", "rabbeet/Pulse?evil=1", nil},
+		{"reject fragment injection", "rabbeet/Pulse#evil", nil},
+		{"reject empty component before slash", "/Pulse", nil},
+		{"reject empty component after slash", "rabbeet/", nil},
+		{"mixed valid and invalid keeps valids", "rabbeet/Pulse,../evil,good/one", []string{"rabbeet/Pulse", "good/one"}},
 	}
 	for _, tc := range cases {
-		got := ParseRepos(tc.in)
-		if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", tc.want) {
-			t.Errorf("ParseRepos(%q) = %v, want %v", tc.in, got, tc.want)
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseRepos(tc.in)
+			if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", tc.want) {
+				t.Errorf("ParseRepos(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsValidRepoName(t *testing.T) {
+	good := []string{"rabbeet/Pulse", "a/b", "my-org/.github_repo", "Org.Name/repo-name"}
+	bad := []string{"", "rabbeet", "rabbeet/", "/Pulse", "../foo", "rabbeet/../admin",
+		"./foo", "rabbeet/.", "rabbeet/..", "../..", "rabbeet/Pulse/extra"}
+	for _, s := range good {
+		if !isValidRepoName(s) {
+			t.Errorf("isValidRepoName(%q) = false, want true", s)
+		}
+	}
+	for _, s := range bad {
+		if isValidRepoName(s) {
+			t.Errorf("isValidRepoName(%q) = true, want false", s)
 		}
 	}
 }

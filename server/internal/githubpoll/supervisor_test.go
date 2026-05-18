@@ -65,32 +65,35 @@ func TestRunWithRecover_ExitsOnCtxCancel(t *testing.T) {
 
 func TestRunWithRecover_RestartsOnError(t *testing.T) {
 	// fn returns a non-nil error every call until cancel. Supervisor
-	// restarts each time. Counts >=3 calls inside a small window.
+	// restarts each time. Asserts via a channel signaled inside fn
+	// (deterministic) rather than a polling-loop on the counter
+	// (flake-prone under CI load).
 	var calls atomic.Int64
+	reached := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
+	done := make(chan struct{})
 	go func() {
-		_ = RunWithRecover
+		defer close(done)
 		RunWithRecover(ctx, "test", nil, nil, time.Millisecond, func(ctx context.Context) error {
-			if calls.Add(1) >= 3 {
+			if calls.Add(1) == 3 {
+				close(reached)
 				cancel()
 			}
 			return errors.New("transient")
 		})
 	}()
-
-	deadline := time.After(time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatalf("supervisor did not restart enough times: calls=%d", calls.Load())
-		default:
-			if calls.Load() >= 3 {
-				return
-			}
-			time.Sleep(time.Millisecond)
-		}
+	select {
+	case <-reached:
+		// fn reached its third invocation — restart loop is alive.
+	case <-time.After(2 * time.Second):
+		t.Fatalf("supervisor did not restart fn enough times: calls=%d", calls.Load())
+	}
+	// Also confirm graceful shutdown.
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("supervisor did not exit after cancel")
 	}
 }
 
