@@ -14,6 +14,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/githubpoll"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
@@ -256,16 +257,23 @@ func main() {
 	registerActivityListeners(bus, queries)
 	registerNotificationListeners(bus, queries)
 
+	// PUL-166 PR3: shared githubpoll metrics. Constructed
+	// unconditionally so the registry can register the collector
+	// (no-op zeros while the poller is gated off) and so the
+	// runGithubPoller call below sees the same pointer.
+	pollMetrics := githubpoll.NewMetrics()
+
 	metricsConfig := obsmetrics.ConfigFromEnv()
 	var metricsServer *http.Server
 	var httpMetrics *obsmetrics.HTTPMetrics
 	if metricsConfig.Enabled() {
 		metricsRegistry := obsmetrics.NewRegistry(obsmetrics.RegistryOptions{
-			Pool:     pool,
-			Realtime: realtime.M,
-			DaemonWS: daemonws.M,
-			Version:  version,
-			Commit:   commit,
+			Pool:       pool,
+			Realtime:   realtime.M,
+			DaemonWS:   daemonws.M,
+			GithubPoll: pollMetrics,
+			Version:    version,
+			Commit:     commit,
 		})
 		httpMetrics = metricsRegistry.HTTP
 		metricsServer = obsmetrics.NewServer(metricsConfig.Addr, metricsRegistry.Gatherer)
@@ -326,11 +334,12 @@ func main() {
 	go runChildProgressScheduler(autopilotCtx, queries, bus, commentSvc)
 	go runDBStatsLogger(sweepCtx, pool)
 
-	// PUL-166 PR2: github outbound poller (dry-run). Replaces the
-	// inbound webhook ingress when PR4 cuts traffic over. Gated by
-	// MULTICA_GITHUB_POLL_ENABLED — default-off; PR3 lights it up in
-	// staging, PR4 flips webhook OFF first then poll ON.
-	runGithubPoller(autopilotCtx, pool)
+	// PUL-166 github outbound poller. Replaces the inbound webhook
+	// ingress when PR4 cuts traffic over. Gated by
+	// MULTICA_GITHUB_POLL_ENABLED — default-off; PR3 added live
+	// cascade_retrigger writes through CascadeRetriggerSink and
+	// Prometheus metrics via pollMetrics.
+	runGithubPoller(autopilotCtx, pool, pollMetrics)
 
 	if metricsServer != nil {
 		go func() {
