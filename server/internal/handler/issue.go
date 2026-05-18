@@ -15,7 +15,6 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/logger"
 	"github.com/multica-ai/multica/server/internal/service"
@@ -1481,46 +1480,87 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// PUL-164: when status changes via HTTP PATCH, write the audit row to
 	// issue_status_history AND enqueue a child_progress fan-out if the issue
-	// has a parent. Best-effort: failures here are logged but never break
-	// the user-visible response (the status flip is already committed).
+	// has a parent. Atomic: a transaction wraps both writes so a partial
+	// failure does not leave a history row without a fan-out (or vice versa).
+	// Best-effort at the request level: failures here are logged but never
+	// break the user-visible response (the status flip itself was already
+	// committed in the UpdateIssue call above).
 	//
 	// This closes a pre-existing audit gap: prior to PUL-164, HTTP-driven
 	// status mutations bypassed issue_status_history entirely (only the
 	// comment-driven flips via service.CommentService wrote history).
 	if statusChanged {
 		actorUUID := pgtype.UUID{}
-		if parsed, parseErr := util.ParseUUID(actorID); parseErr == nil {
-			actorUUID = parsed
+		if actorID != "" {
+			if parsed, parseErr := util.ParseUUID(actorID); parseErr == nil {
+				actorUUID = parsed
+			} else {
+				// Member calls SHOULD always have a parseable userID from
+				// the auth middleware. Reaching here means header drift or
+				// a test stub; do not block the request, but surface it.
+				slog.Warn("update issue: actor UUID parse failed; history actor will be NULL",
+					append(logger.RequestAttrs(r), "actor_id_raw", actorID, "error", parseErr)...)
+			}
 		}
-		// Generate a unique ref_id per HTTP PATCH so the UNIQUE(source,
-		// ref_id) idempotency contract on issue_status_history accepts
-		// repeated PATCHes to the same status (each PATCH is a distinct
-		// audit event).
-		refID := uuid.NewString()
-		history, histErr := h.Queries.InsertStatusHistory(r.Context(), db.InsertStatusHistoryParams{
-			IssueID:    issue.ID,
-			FromStatus: pgtype.Text{String: prevIssue.Status, Valid: true},
-			ToStatus:   issue.Status,
-			Source:     service.SourceManual,
-			ActorID:    actorUUID,
-			ActorType:  pgtype.Text{String: actorType, Valid: actorType != ""},
-			RefID:      pgtype.Text{String: refID, Valid: true},
-		})
-		if histErr != nil {
-			slog.Warn("update issue: status history insert failed",
-				append(logger.RequestAttrs(r), "error", histErr, "issue_id", id)...)
-		} else if issue.ParentIssueID.Valid {
-			if _, _, fanErr := service.EnqueueChildProgressFanout(r.Context(), h.Queries, service.EnqueueChildProgressParams{
-				WorkspaceID:     issue.WorkspaceID,
-				SourceHistoryID: history.ID,
-				ChildIssueID:    issue.ID,
-				PrevStatus:      prevIssue.Status,
-				NewStatus:       issue.Status,
-				ActorID:         actorUUID,
-				ActorType:       pgtype.Text{String: actorType, Valid: actorType != ""},
-			}); fanErr != nil {
-				slog.Warn("update issue: child_progress fanout enqueue failed",
-					append(logger.RequestAttrs(r), "error", fanErr, "issue_id", id)...)
+		// Stable ref_id from the natural shape of the event. UNIQUE
+		// (source, ref_id) on issue_status_history then deduplicates
+		// double-click / network-retry of the same logical PATCH at the
+		// audit-row level. A repeat PATCH with a different actor or a
+		// different transition still gets its own row.
+		actorIDForRef := actorID
+		if actorIDForRef == "" {
+			actorIDForRef = "anonymous"
+		}
+		refID := fmt.Sprintf("http:%s:%s:%s>%s",
+			uuidToString(issue.ID), actorIDForRef, prevIssue.Status, issue.Status)
+
+		tx, txErr := h.TxStarter.Begin(r.Context())
+		if txErr != nil {
+			slog.Warn("update issue: tx begin failed; skipping audit + fanout",
+				append(logger.RequestAttrs(r), "error", txErr, "issue_id", id)...)
+		} else {
+			qtx := h.Queries.WithTx(tx)
+			history, histErr := qtx.InsertStatusHistory(r.Context(), db.InsertStatusHistoryParams{
+				IssueID:    issue.ID,
+				FromStatus: pgtype.Text{String: prevIssue.Status, Valid: true},
+				ToStatus:   issue.Status,
+				Source:     service.SourceManual,
+				ActorID:    actorUUID,
+				ActorType:  pgtype.Text{String: actorType, Valid: actorType != ""},
+				RefID:      pgtype.Text{String: refID, Valid: true},
+			})
+			rollback := false
+			switch {
+			case histErr == nil:
+				if issue.ParentIssueID.Valid {
+					if _, _, fanErr := service.EnqueueChildProgressFanout(r.Context(), qtx, service.EnqueueChildProgressParams{
+						WorkspaceID:     issue.WorkspaceID,
+						SourceHistoryID: history.ID,
+						ChildIssueID:    issue.ID,
+						PrevStatus:      prevIssue.Status,
+						NewStatus:       issue.Status,
+						ActorID:         actorUUID,
+						ActorType:       pgtype.Text{String: actorType, Valid: actorType != ""},
+					}); fanErr != nil {
+						slog.Warn("update issue: child_progress fanout enqueue failed; rolling back audit row",
+							append(logger.RequestAttrs(r), "error", fanErr, "issue_id", id)...)
+						rollback = true
+					}
+				}
+			case isUniqueViolation(histErr):
+				// Replay of the same PATCH (stable ref_id) — audit row
+				// already exists, fan-out already enqueued previously.
+				// Nothing to do; commit a no-op tx so locks release.
+			default:
+				slog.Warn("update issue: status history insert failed",
+					append(logger.RequestAttrs(r), "error", histErr, "issue_id", id)...)
+				rollback = true
+			}
+			if rollback {
+				tx.Rollback(r.Context())
+			} else if commitErr := tx.Commit(r.Context()); commitErr != nil {
+				slog.Warn("update issue: tx commit failed",
+					append(logger.RequestAttrs(r), "error", commitErr, "issue_id", id)...)
 			}
 		}
 	}

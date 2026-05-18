@@ -22,6 +22,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -209,36 +210,64 @@ func childIdentifier(ctx context.Context, queries *db.Queries, issue db.Issue) s
 // publishChildProgress emits two realtime events for a freshly-inserted
 // fan-out comment:
 //
-//  1. comment:created — same event the HTTP path emits. Frontend already
-//     listens to this and invalidates the issue's comment list, so the
-//     fan-out card appears without any new client code.
+//  1. comment:created — same shape as the event the HTTP comment-create
+//     handler emits, so the frontend's existing handler invalidates the
+//     issue's comment list and the fan-out card appears without any new
+//     client code. The "comment" object mirrors handler.CommentResponse;
+//     meta is exposed as the raw JSONB so clients can deserialise it as a
+//     structured ChildProgressMeta (matches the HTTP path's shape).
 //  2. child_progress — a more specific event for clients that want to
 //     filter on child-driven activity (e.g. an aggregate "child activity"
 //     digest view). Optional; no current consumer.
 func publishChildProgress(bus *events.Bus, workspaceID pgtype.UUID, result service.CommentCreateResult, row db.IssueChildProgressOutbox) {
 	wsID := util.UUIDToString(workspaceID)
 
-	// (1) comment:created — same shape as HTTP-authored comments so the
-	// frontend's existing handler picks it up.
+	// Build the comment payload to match handler.commentToResponse exactly:
+	// same fields, same shapes, same JSON encoding (meta as raw bytes,
+	// parent_id as nullable *string, etc.). This keeps the frontend
+	// handler off two divergent shapes.
+	var metaPayload any
+	if len(result.Comment.Meta) > 0 && string(result.Comment.Meta) != "{}" {
+		// Pass the raw JSON; the bus marshals the envelope and embedded
+		// json.RawMessage values are emitted verbatim.
+		metaPayload = json.RawMessage(result.Comment.Meta)
+	}
+	var sourceHistoryID *int64
+	if result.Comment.SourceHistoryID.Valid {
+		v := result.Comment.SourceHistoryID.Int64
+		sourceHistoryID = &v
+	}
+	commentPayload := map[string]any{
+		"id":                util.UUIDToString(result.Comment.ID),
+		"issue_id":          util.UUIDToString(result.Comment.IssueID),
+		"author_type":       result.Comment.AuthorType,
+		"author_id":         util.UUIDToString(result.Comment.AuthorID),
+		"content":           result.Comment.Content,
+		"type":              result.Comment.Type,
+		"parent_id":         nilIfInvalidUUID(result.Comment.ParentID),
+		"created_at":        result.Comment.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"updated_at":        result.Comment.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"reactions":         []any{},
+		"attachments":       []any{},
+		"meta":              metaPayload,
+		"source_history_id": sourceHistoryID,
+	}
+
+	// (1) comment:created — same shape as HTTP-authored comments.
 	bus.Publish(events.Event{
 		Type:        protocol.EventCommentCreated,
 		WorkspaceID: wsID,
 		ActorType:   "system",
 		Payload: map[string]any{
-			"comment": map[string]any{
-				"id":          util.UUIDToString(result.Comment.ID),
-				"issue_id":    util.UUIDToString(result.Comment.IssueID),
-				"author_type": result.Comment.AuthorType,
-				"author_id":   util.UUIDToString(result.Comment.AuthorID),
-				"content":     result.Comment.Content,
-				"type":        result.Comment.Type,
-				"meta":        string(result.Comment.Meta),
-			},
-			"issue_status": result.UpdatedIssue.Status,
+			"comment":             commentPayload,
+			"issue_title":         "",
+			"issue_assignee_type": nil,
+			"issue_assignee_id":   nil,
+			"issue_status":        result.UpdatedIssue.Status,
 		},
 	})
 
-	// (2) child_progress — more specific signal.
+	// (2) child_progress — more specific signal for filtering consumers.
 	bus.Publish(events.Event{
 		Type:        protocol.EventChildProgress,
 		WorkspaceID: wsID,
@@ -252,4 +281,16 @@ func publishChildProgress(bus *events.Bus, workspaceID pgtype.UUID, result servi
 			"new_status":        row.NewStatus,
 		},
 	})
+}
+
+// nilIfInvalidUUID returns nil for an unset pgtype.UUID, or its string form.
+// Matches handler.uuidToPtr — duplicated here because the comment payload
+// must look exactly like CommentResponse (parent_id is JSON null when unset,
+// not the empty string).
+func nilIfInvalidUUID(u pgtype.UUID) *string {
+	if !u.Valid {
+		return nil
+	}
+	s := util.UUIDToString(u)
+	return &s
 }
