@@ -276,19 +276,24 @@ func deleteSystemCommentsForIssue(t *testing.T, issueID string) {
 func createArchivedAgent(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
-	// Reuse the existing agent's runtime so we don't need to provision one.
-	var runtimeID string
+	// Reuse the existing agent's runtime + runtime_mode so we don't need
+	// to provision one. runtime_mode is NOT NULL with a CHECK
+	// constraint (001_init.up.sql:41), so we must inherit it from the
+	// base agent rather than picking a default.
+	var runtimeID, runtimeMode string
 	if err := testPool.QueryRow(ctx,
-		`SELECT runtime_id::text FROM agent WHERE workspace_id = $1 AND archived_at IS NULL LIMIT 1`,
+		`SELECT runtime_id::text, runtime_mode
+		   FROM agent
+		  WHERE workspace_id = $1 AND archived_at IS NULL LIMIT 1`,
 		testWorkspaceID,
-	).Scan(&runtimeID); err != nil {
-		t.Fatalf("look up base runtime_id: %v", err)
+	).Scan(&runtimeID, &runtimeMode); err != nil {
+		t.Fatalf("look up base agent: %v", err)
 	}
 	var id string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent (workspace_id, name, runtime_id, visibility, archived_at)
-		VALUES ($1, 'archived-test-agent', $2, 'workspace', now())
-		RETURNING id::text`, testWorkspaceID, runtimeID,
+		INSERT INTO agent (workspace_id, name, runtime_id, runtime_mode, visibility, archived_at)
+		VALUES ($1, 'archived-test-agent', $2, $3, 'workspace', now())
+		RETURNING id::text`, testWorkspaceID, runtimeID, runtimeMode,
 	).Scan(&id); err != nil {
 		t.Fatalf("create archived agent: %v", err)
 	}
