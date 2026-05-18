@@ -30,9 +30,55 @@ type InboxItemResponse struct {
 	ActorType     *string         `json:"actor_type"`
 	ActorID       *string         `json:"actor_id"`
 	Details       json.RawMessage `json:"details"`
+
+	// PUL-177 phase + last-applied-skill chips for the Inbox row.
+	// Phase is always present (derived from issue.status with a
+	// default fallback); LatestSkill is null for tickets that have
+	// never had a skill applied.
+	Phase       string              `json:"phase"`
+	LatestSkill *SkillStateResponse `json:"latest_skill"`
+}
+
+// derivePhaseFromStatus maps issue.status to the coarser
+// workflow-phase concept the Inbox PhaseChip renders. PUL-177
+// /office-hours Q4 reframe — the user's real question is "should I
+// open this ticket now", not "what skill stage". Mapping is
+// intentionally lossy: planning/coding/review/done aggregate the
+// finer-grained multica statuses into the 5 chips a Vadim-on-phone
+// can scan in <1 second.
+//
+// Empty input (NULL issue.status, which happens for unlinked inbox
+// items) and unknown values both fall back to "backlog" — those
+// rows aren't broken, they're just not yet workflowed.
+func derivePhaseFromStatus(status string) string {
+	switch status {
+	case "backlog", "todo":
+		return "backlog"
+	case "planning":
+		return "planning"
+	case "in_progress", "developing":
+		return "coding"
+	case "waiting":
+		return "review"
+	case "deployed":
+		return "done"
+	case "blocked":
+		return "blocked"
+	case "cancelled":
+		return "cancelled"
+	default:
+		return "backlog"
+	}
 }
 
 func inboxToResponse(i db.InboxItem) InboxItemResponse {
+	// Single-row variant (used by MarkRead, Archive, etc. event
+	// publishes). The db.InboxItem model doesn't carry the issue
+	// status join or the latest-skill subquery, so Phase defaults
+	// to "backlog" — callers can enrichInboxResponse() if they
+	// need a derived phase, but at this point the row is generally
+	// being shipped as an event payload and consumers re-fetch from
+	// ListInbox anyway.
 	return InboxItemResponse{
 		ID:            uuidToString(i.ID),
 		WorkspaceID:   uuidToString(i.WorkspaceID),
@@ -49,10 +95,31 @@ func inboxToResponse(i db.InboxItem) InboxItemResponse {
 		ActorType:     textToPtr(i.ActorType),
 		ActorID:       uuidToPtr(i.ActorID),
 		Details:       json.RawMessage(i.Details),
+		Phase:         derivePhaseFromStatus(""),
 	}
 }
 
 func inboxRowToResponse(r db.ListInboxItemsRow) InboxItemResponse {
+	// Phase derivation reads issue.status from the join. Empty when
+	// the issue row is missing (which shouldn't happen for a healthy
+	// inbox_item, but the join is LEFT so we handle the NULL).
+	var statusForPhase string
+	if r.IssueStatus.Valid {
+		statusForPhase = r.IssueStatus.String
+	}
+
+	var latest *SkillStateResponse
+	if r.LatestSkillSlug.Valid {
+		ls := SkillStateResponse{
+			Skill:       r.LatestSkillSlug.String,
+			Status:      r.LatestSkillStatus.String,
+			StartedAt:   timestampToString(r.LatestSkillStartedAt),
+			CompletedAt: timestampToPtr(r.LatestSkillCompletedAt),
+			UpdatedAt:   timestampToString(r.LatestSkillUpdatedAt),
+		}
+		latest = &ls
+	}
+
 	return InboxItemResponse{
 		ID:            uuidToString(r.ID),
 		WorkspaceID:   uuidToString(r.WorkspaceID),
@@ -70,6 +137,8 @@ func inboxRowToResponse(r db.ListInboxItemsRow) InboxItemResponse {
 		ActorType:     textToPtr(r.ActorType),
 		ActorID:       uuidToPtr(r.ActorID),
 		Details:       json.RawMessage(r.Details),
+		Phase:         derivePhaseFromStatus(statusForPhase),
+		LatestSkill:   latest,
 	}
 }
 
@@ -81,6 +150,11 @@ func (h *Handler) enrichInboxResponse(ctx context.Context, resp InboxItemRespons
 	if err == nil {
 		s := issue.Status
 		resp.IssueStatus = &s
+		// PUL-177: keep Phase in sync with IssueStatus when the
+		// enrich path fires. ListInbox already derives this from
+		// the JOIN result, but the event-publish path uses this
+		// helper and would otherwise emit Phase="backlog" forever.
+		resp.Phase = derivePhaseFromStatus(s)
 	}
 	return resp
 }

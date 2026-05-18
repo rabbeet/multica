@@ -382,6 +382,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/usage", h.GetIssueUsage)
 					r.Post("/reactions", h.AddIssueReaction)
 					r.Delete("/reactions", h.RemoveIssueReaction)
+					// PUL-177 inbox phase + last-applied skill chips and
+					// SkillHistory panel — see plans://Multica/2026-05-18-pul-177-inbox-skill-progress-indicators.md.
+					r.Post("/skill-state", h.PostSkillState)
+					r.Get("/skill-states", h.ListIssueSkillStates)
+					r.Delete("/skill-state", h.DeleteSkillState)
 					r.Get("/attachments", h.ListAttachments)
 					r.Get("/children", h.ListChildIssues)
 					r.Get("/labels", h.ListLabelsForIssue)

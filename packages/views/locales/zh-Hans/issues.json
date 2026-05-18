@@ -311,5 +311,11 @@
     "dont_show_again": "不再提示",
     "keep_in_backlog": "保持在 Backlog",
     "move_to_todo": "移到 Todo"
+  },
+  "skill_history": {
+    "title": "技能历史",
+    "empty": "尚未对该 issue 应用任何技能。",
+    "done_at": "已完成 {{time}}",
+    "in_progress_started": "进行中，开始于 {{time}}"
   }
 }

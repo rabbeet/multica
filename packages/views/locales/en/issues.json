@@ -318,5 +318,11 @@
     "dont_show_again": "Don't show this again",
     "keep_in_backlog": "Keep in Backlog",
     "move_to_todo": "Move to Todo"
+  },
+  "skill_history": {
+    "title": "Skill history",
+    "empty": "No skills have been applied to this ticket yet.",
+    "done_at": "done {{time}}",
+    "in_progress_started": "in progress, started {{time}}"
   }
 }

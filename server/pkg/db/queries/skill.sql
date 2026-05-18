@@ -15,6 +15,15 @@ FROM skill
 WHERE workspace_id = $1
 ORDER BY name ASC;
 
+-- name: ListWorkspaceSkillNames :many
+-- Names-only variant used by the comment auto-detect path in PUL-177
+-- (server/internal/handler/comment.go::inferSkillStatesFromComment).
+-- Called once per comment that contains at least one /<slug> token —
+-- so it's on the comment-write hot path and we don't ship summary
+-- fields the caller never reads.
+SELECT name FROM skill
+WHERE workspace_id = $1;
+
 -- name: GetSkill :one
 SELECT * FROM skill
 WHERE id = $1;

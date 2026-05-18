@@ -24,6 +24,8 @@ function item(overrides: Partial<InboxItem>): InboxItem {
     archived: false,
     created_at: "2026-04-29T12:00:00Z",
     details: null,
+    phase: "backlog",
+    latest_skill: null,
     ...overrides,
   };
 }

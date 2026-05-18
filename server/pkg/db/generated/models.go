@@ -257,6 +257,13 @@ type Feedback struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type GithubPollCursor struct {
+	Repo         string             `json:"repo"`
+	LastEventID  pgtype.Int8        `json:"last_event_id"`
+	LastPolledAt pgtype.Timestamptz `json:"last_polled_at"`
+	Etag         pgtype.Text        `json:"etag"`
+}
+
 type InboxItem struct {
 	ID            pgtype.UUID        `json:"id"`
 	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
@@ -364,6 +371,16 @@ type IssueReminder struct {
 	CancelledAt    pgtype.Timestamptz `json:"cancelled_at"`
 	CancelReason   pgtype.Text        `json:"cancel_reason"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type IssueSkillState struct {
+	IssueID     pgtype.UUID        `json:"issue_id"`
+	SkillSlug   string             `json:"skill_slug"`
+	Status      string             `json:"status"`
+	StartedAt   pgtype.Timestamptz `json:"started_at"`
+	CompletedAt pgtype.Timestamptz `json:"completed_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Source      string             `json:"source"`
 }
 
 type IssueStatusHistory struct {

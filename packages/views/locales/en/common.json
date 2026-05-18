@@ -3,5 +3,26 @@
   "cancel": "Cancel",
   "delete": "Delete",
   "confirm": "Confirm",
-  "loading": "Loading..."
+  "loading": "Loading...",
+  "time": {
+    "just_now": "just now",
+    "minutes": "{{count}}m",
+    "hours": "{{count}}h",
+    "days": "{{count}}d"
+  },
+  "phase": {
+    "tooltip": {
+      "backlog": "Backlog",
+      "planning": "Planning",
+      "coding": "Coding",
+      "review": "In review",
+      "done": "Done",
+      "blocked": "Blocked",
+      "cancelled": "Cancelled"
+    }
+  },
+  "skill_chip": {
+    "in_progress": "/{{skill}} in progress — started {{time}}",
+    "done": "/{{skill}} done — {{time}}"
+  }
 }

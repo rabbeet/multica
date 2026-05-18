@@ -6,24 +6,16 @@ import { Archive } from "lucide-react";
 import type { InboxItem } from "@multica/core/types";
 import { InboxDetailLabel } from "./inbox-detail-label";
 import { getInboxDisplayTitle } from "./inbox-display";
+import { PhaseChip } from "./phase-chip";
+import { LastSkillChip } from "../../common/components/last-skill-chip";
 import { useT } from "../../i18n";
+import { useTimeAgo } from "../../common/hooks/use-time-ago";
 
-// Hook returning a localized relative-time formatter — the i18n equivalent
-// of the previous static `timeAgo` function. Returning a function (rather
-// than a string) keeps call-site usage identical: `timeAgo(dateStr)`.
-export function useTimeAgo() {
-  const { t } = useT("inbox");
-  return (dateStr: string): string => {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const minutes = Math.floor(diff / 60000);
-    if (minutes < 1) return t(($) => $.list.time.just_now);
-    if (minutes < 60) return t(($) => $.list.time.minutes, { count: minutes });
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return t(($) => $.list.time.hours, { count: hours });
-    const days = Math.floor(hours / 24);
-    return t(($) => $.list.time.days, { count: days });
-  };
-}
+// useTimeAgo lives in packages/views/common/hooks/use-time-ago.ts so
+// it can be shared with the SkillHistory panel on the issue detail
+// page (PUL-177). Re-exported here for legacy callers; new code
+// should import from "../../common/hooks/use-time-ago" directly.
+export { useTimeAgo };
 
 export function InboxListItem({
   item,
@@ -66,6 +58,11 @@ export function InboxListItem({
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {/* PUL-177 phase + last-skill chips. PhaseChip is always
+                rendered (default backlog); LastSkillChip hides itself
+                when the issue has no skill_state history. */}
+            <PhaseChip phase={item.phase} />
+            <LastSkillChip skill={item.latest_skill} />
             <span
               role="button"
               tabIndex={-1}
