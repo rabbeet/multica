@@ -266,6 +266,72 @@ func TestProjectReposReplaceWorkspaceReposInMetaSkill(t *testing.T) {
 	}
 }
 
+// TestPerTaskWorktreeToolchainHints — PUL-163 §2/§3c. When the daemon
+// provisions a per-task worktree on a multica-flavoured repo, the generated
+// CLAUDE.md must mention the host toolchain the agent can use so it doesn't
+// rediscover Go/sqlc/pnpm from scratch.
+func TestPerTaskWorktreeToolchainHints(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		targetRepo string
+		mustHave   []string
+		mustNotHave []string
+	}{
+		{
+			name:       "rabbeet/multica gets Go/sqlc/pnpm",
+			targetRepo: "rabbeet/multica",
+			mustHave:   []string{"go` 1.26", "sqlc` v1.31.1", "pnpm` 10.28", "make check", "/srv/agent-context/multica/pg/"},
+		},
+		{
+			name:       "rabbeet/multica-server gets bash-only block",
+			targetRepo: "rabbeet/multica-server",
+			mustHave:   []string{"bash -n", "scripts/<NN>", "idempotent"},
+			mustNotHave: []string{"sqlc", "pnpm"},
+		},
+		{
+			name:       "rabbeet/Pulse gets PHP+pint+npm guidance",
+			targetRepo: "rabbeet/Pulse",
+			mustHave:   []string{"pint --test", "lint:check", "SKIP_PR_CHECKS"},
+		},
+		{
+			name:       "unknown repo emits no toolchain block",
+			targetRepo: "rabbeet/some-other-repo",
+			mustNotHave: []string{"Toolchain"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			ctx := TaskContextForEnv{
+				IssueID:             "11111111-2222-3333-4444-555555555555",
+				PerTaskTargetRepo:   tc.targetRepo,
+				PerTaskWorktreePath: "/srv/agent-worktrees/agent-1-abcdef12",
+				PerTaskBarePath:     "/srv/" + strings.Split(tc.targetRepo, "/")[1] + "-bare.git",
+			}
+			if err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
+				t.Fatalf("InjectRuntimeConfig: %v", err)
+			}
+			content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+			if err != nil {
+				t.Fatalf("read CLAUDE.md: %v", err)
+			}
+			s := string(content)
+			for _, sub := range tc.mustHave {
+				if !strings.Contains(s, sub) {
+					t.Errorf("CLAUDE.md missing %q for target_repo=%s", sub, tc.targetRepo)
+				}
+			}
+			for _, sub := range tc.mustNotHave {
+				if strings.Contains(s, sub) {
+					t.Errorf("CLAUDE.md unexpectedly contains %q for target_repo=%s", sub, tc.targetRepo)
+				}
+			}
+		})
+	}
+}
+
 func TestWriteProjectResourcesSkippedWhenNone(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

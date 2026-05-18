@@ -72,6 +72,36 @@ func InjectRuntimeConfig(workDir, provider string, ctx TaskContextForEnv) error 
 	}
 }
 
+// repoToolchainHint returns a markdown block describing the host toolchain
+// and validation entry points that the agent can rely on when working in a
+// specific target repo. Returns an empty string for unknown repos so the
+// caller emits no extra section.
+//
+// Kept tightly scoped to the multica fork's known repos (PUL-163). When new
+// target repos get added to MULTICA_BARE_REPO_MAP they should grow a case
+// here too, otherwise their per-task worktree section reads as
+// toolchain-agnostic.
+func repoToolchainHint(targetRepo string) string {
+	switch targetRepo {
+	case "rabbeet/multica", "multica-ai/multica":
+		return "**Toolchain (already installed on the host, on PATH):**\n" +
+			"- `go` 1.26+ — `go build ./...`, `go test ./...` from `server/`\n" +
+			"- `sqlc` v1.31.1 — `sqlc generate` from `server/`; do not regenerate against a different version, the checked-in output is pinned to v1.31.1\n" +
+			"- `pnpm` 10.28+ — `pnpm install`, `pnpm -r build`, `pnpm -r lint` from repo root\n\n" +
+			"**Validate before opening a PR:** run `make setup` once after fresh checkout, then `make check` (the Makefile runs lint + sqlc-diff + go vet + tests). Schema reference for the multica DB lives at `/srv/agent-context/multica/pg/<table>.md` — hourly DDL dumps, read-only.\n\n"
+	case "rabbeet/multica-server":
+		return "**Toolchain (none required beyond bash + standard coreutils):**\n" +
+			"- All bootstrap steps live under `scripts/<NN>-*.sh` and are sourced by `bootstrap.sh`. Each script is idempotent — re-running is safe.\n" +
+			"- Validate a script change locally with `bash -n scripts/<NN>-*.sh` (syntax) and, if available, `shellcheck` it. Apply a single step with `sudo bash scripts/<NN>-*.sh`.\n" +
+			"- `.env` is the source of truth for PATs and operator secrets and is git-ignored — do not commit values.\n\n"
+	case "rabbeet/Pulse", "multica-ai/Pulse":
+		return "**Toolchain (already installed on the host, on PATH):** PHP + Composer for the backend, Node + pnpm/npm for the frontend.\n" +
+			"**Validate before opening a PR:** `composer install`, `npm ci`, `vendor/bin/pint --test`, and `npm run lint:check format:check types:check`. The `pre-pr-checks.sh` PreToolUse hook will block `gh pr create` until these pass locally; set `SKIP_PR_CHECKS=1` only for genuine WIP drafts.\n\n"
+	default:
+		return ""
+	}
+}
+
 // buildMetaSkillContent generates the meta skill markdown that teaches the agent
 // about the Multica runtime environment and available CLI tools.
 func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
@@ -172,6 +202,9 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 		fmt.Fprintf(&b, "- **Bare repo** (read-only, do not touch): `%s`\n\n", ctx.PerTaskBarePath)
 		b.WriteString("Run `multica repo checkout " + ctx.PerTaskTargetRepo + "` (or the full URL) to materialize the worktree on first use. The daemon routes it to the path above automatically.\n\n")
 		b.WriteString("This worktree is isolated from other tasks on this agent — concurrent tasks on different issues each get their own. The worktree directory and its branch will be cleaned up after the task completes; your PR push to the remote is what survives.\n\n")
+		if hint := repoToolchainHint(ctx.PerTaskTargetRepo); hint != "" {
+			b.WriteString(hint)
+		}
 	}
 
 	// Inject available repositories section.
