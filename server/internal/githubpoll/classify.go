@@ -221,23 +221,25 @@ func (c Classifier) classifyCheckRun(ctx context.Context, repo string, eventID u
 	}, nil
 }
 
+// pullRequestPayload models the REST /events PullRequestEvent payload.
+//
+// Webhook-only fields (html_url, title, merged) are deliberately NOT
+// declared — the poll classifier must reflect the shape it actually
+// receives. PUL-183 dropped html_url at the validation layer but kept
+// it in the struct; PUL-185 finishes the job and drops title + merged
+// (along with the `changes` block stripped by /events on edited
+// actions). The webhook adapter (server/internal/webhooks/github)
+// keeps its own struct with the full webhook shape.
 type pullRequestPayload struct {
 	Action      string `json:"action"`
 	Number      int32  `json:"number"`
 	PullRequest struct {
 		HTMLURL string `json:"html_url"`
-		Title   string `json:"title"`
-		Merged  bool   `json:"merged"`
 		Head    struct {
 			SHA string `json:"sha"`
 			Ref string `json:"ref"`
 		} `json:"head"`
 	} `json:"pull_request"`
-	Changes struct {
-		Title struct {
-			From string `json:"from"`
-		} `json:"title"`
-	} `json:"changes"`
 }
 
 func (c Classifier) classifyPullRequest(repo string, eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
@@ -248,10 +250,10 @@ func (c Classifier) classifyPullRequest(repo string, eventID uuid.UUID, raw json
 	if p.Number == 0 {
 		return nil, fmt.Errorf("%w: pull_request missing number", ErrSchemaMismatch)
 	}
-	// REST /events delivers a stripped pull_request object — the API
-	// `url` is present but `html_url` is not. Reconstruct from
-	// repo + number when the payload omits it; same approach as
-	// resolveOrInlinePRs uses for workflow_run / check_run inline PRs.
+	// REST /events strips html_url from the pull_request object; the
+	// API `url` is present but not used. Reconstruct from repo + number
+	// the same way resolveOrInlinePRs does for workflow_run / check_run
+	// inline PRs. See PUL-183.
 	prURL := p.PullRequest.HTMLURL
 	if prURL == "" {
 		prURL = htmlURLForPR(repo, int(p.Number))
@@ -260,28 +262,40 @@ func (c Classifier) classifyPullRequest(repo string, eventID uuid.UUID, raw json
 		EventID:  eventID,
 		PRURL:    prURL,
 		PRNumber: int(p.Number),
-		PRTitle:  p.PullRequest.Title,
-		HeadSHA:  p.PullRequest.Head.SHA,
-		Branch:   p.PullRequest.Head.Ref,
+		// PRTitle deliberately omitted: REST /events strips
+		// pull_request.title. cascade.Worker.resolveIssue
+		// (server/internal/cascade/lookup.go) falls back to the
+		// agent-<N>/<prefix>-<n>-<slug> branch regex when title is
+		// empty, so agent-driven PRs (the only ones the cascade
+		// scope filter accepts via InScope) still resolve correctly.
+		// Human PRs with `[PUL-N]` in title but a non-agent branch
+		// would scope-skip on the poll path; webhook channel remains
+		// canonical for that narrow edge case. See PUL-185.
+		HeadSHA: p.PullRequest.Head.SHA,
+		Branch:  p.PullRequest.Head.Ref,
 	}
 	switch p.Action {
-	case "closed":
-		if !p.PullRequest.Merged {
-			return nil, ErrSkip
-		}
+	case "merged":
+		// REST /events synthesizes a "merged" action for completed
+		// PR merges (the webhook channel emits action="closed" with
+		// pull_request.merged=true). PUL-185.
 		common.EventType = webhooks.EventTypePRMerged
 		return &common, nil
-	case "edited":
-		if p.Changes.Title.From == "" {
-			return nil, ErrSkip
-		}
-		common.EventType = webhooks.EventTypePRTitleEdit
-		return &common, nil
 	default:
+		// Includes "opened", "closed" (unmerged), "reopened",
+		// "labeled", "edited", etc. The "edited" arm was previously
+		// wired to EventTypePRTitleEdit via changes.title.from, but
+		// REST /events strips the `changes` field, so that branch was
+		// poll-blind by construction. Webhook channel remains the
+		// canonical source for pr_title_edit. Re-add a poll arm only
+		// if GitHub stops stripping `changes` from /events. PUL-185.
 		return nil, ErrSkip
 	}
 }
 
+// pullRequestReviewPayload — see pullRequestPayload doc-comment.
+// REST /events strips html_url + title from the pull_request object,
+// and synthesizes action="created" instead of webhook's "submitted".
 type pullRequestReviewPayload struct {
 	Action string `json:"action"`
 	Review struct {
@@ -290,7 +304,6 @@ type pullRequestReviewPayload struct {
 	PullRequest struct {
 		Number  int32  `json:"number"`
 		HTMLURL string `json:"html_url"`
-		Title   string `json:"title"`
 		Head    struct {
 			SHA string `json:"sha"`
 			Ref string `json:"ref"`
@@ -303,7 +316,10 @@ func (c Classifier) classifyPullRequestReview(repo string, eventID uuid.UUID, ra
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, fmt.Errorf("%w: pull_request_review: %v", ErrSchemaMismatch, err)
 	}
-	if p.Action != "submitted" {
+	// REST /events emits action="created" for newly-submitted reviews;
+	// webhook channel uses "submitted". The webhook adapter is
+	// unchanged. PUL-185.
+	if p.Action != "created" {
 		return nil, ErrSkip
 	}
 	// Mirrors the webhook adapter: only changes_requested wakes the
@@ -314,9 +330,7 @@ func (c Classifier) classifyPullRequestReview(repo string, eventID uuid.UUID, ra
 	if p.PullRequest.Number == 0 {
 		return nil, fmt.Errorf("%w: pull_request_review missing pull_request.number", ErrSchemaMismatch)
 	}
-	// Same REST /events shape quirk as classifyPullRequest — html_url
-	// is omitted on the pull request object; reconstruct from repo +
-	// number.
+	// REST also strips html_url here; reconstruct from repo + number.
 	prURL := p.PullRequest.HTMLURL
 	if prURL == "" {
 		prURL = htmlURLForPR(repo, int(p.PullRequest.Number))
@@ -326,9 +340,10 @@ func (c Classifier) classifyPullRequestReview(repo string, eventID uuid.UUID, ra
 		EventType: webhooks.EventTypePRReviewChange,
 		PRURL:     prURL,
 		PRNumber:  int(p.PullRequest.Number),
-		PRTitle:   p.PullRequest.Title,
-		HeadSHA:   p.PullRequest.Head.SHA,
-		Branch:    p.PullRequest.Head.Ref,
+		// PRTitle deliberately omitted — same reason as
+		// classifyPullRequest above. PUL-185.
+		HeadSHA: p.PullRequest.Head.SHA,
+		Branch:  p.PullRequest.Head.Ref,
 	}, nil
 }
 
