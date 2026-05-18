@@ -21,10 +21,16 @@ func TestBuildCommentPrompt_SystemTrigger(t *testing.T) {
 	}
 	out := buildCommentPrompt(task)
 	mustContain := []string{
+		// Body content is surfaced verbatim so the agent reads the trigger.
 		"event_type=ci_failure",
 		"PR #530",
 		"head_sha=3d26b7f1",
 		"gh pr checks 530",
+		// Framing header is system-specific so the agent treats the
+		// trigger as an action signal, not as a comment that needs a
+		// reply.
+		"[CASCADE WAKE-UP]",
+		"is the trigger, not a reply",
 	}
 	for _, s := range mustContain {
 		if !strings.Contains(out, s) {
@@ -33,6 +39,12 @@ func TestBuildCommentPrompt_SystemTrigger(t *testing.T) {
 	}
 	if strings.Contains(out, "⚠️ The triggering comment was posted by another agent") {
 		t.Errorf("buildCommentPrompt[system] must NOT inject the 'another agent' warning — that path is for author_type='agent'; got:\n%s", out)
+	}
+	// The 'A user just left a new comment' header is wrong for cascade
+	// wake-ups (system is not a user). Regression guard: if a future
+	// refactor drops the system case in the switch, this assertion fails.
+	if strings.Contains(out, "A user just left a new comment") {
+		t.Errorf("buildCommentPrompt[system] must NOT use the 'A user just left a new comment' framing; got:\n%s", out)
 	}
 }
 

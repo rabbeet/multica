@@ -101,15 +101,24 @@ func buildCommentPrompt(task Task) string {
 	b.WriteString("You are running as a local coding agent for a Multica workspace.\n\n")
 	fmt.Fprintf(&b, "Your assigned issue ID is: %s\n\n", task.IssueID)
 	if task.TriggerCommentContent != "" {
-		authorLabel := "A user"
-		if task.TriggerAuthorType == "agent" {
+		// Pick the framing header based on who/what generated the trigger.
+		// system-typed triggers come from cascade wake-ups (CI failure,
+		// webhook events) — they are NOT comments from a person or another
+		// agent, so the "X just left a new comment" framing is misleading
+		// and risks the agent treating the wake-up as a reply that needs
+		// answering instead of an action signal to investigate.
+		switch task.TriggerAuthorType {
+		case "agent":
 			name := task.TriggerAuthorName
 			if name == "" {
 				name = "another agent"
 			}
-			authorLabel = fmt.Sprintf("Another agent (%s)", name)
+			fmt.Fprintf(&b, "[NEW COMMENT] Another agent (%s) just left a new comment. Focus on THIS comment — do not confuse it with previous ones:\n\n", name)
+		case "system":
+			b.WriteString("[CASCADE WAKE-UP] The platform dispatched this run for a specific reason — the message below is the trigger, not a reply to answer. Investigate as instructed; only post a comment if your work this turn produced a result worth sharing.\n\n")
+		default:
+			b.WriteString("[NEW COMMENT] A user just left a new comment. Focus on THIS comment — do not confuse it with previous ones:\n\n")
 		}
-		fmt.Fprintf(&b, "[NEW COMMENT] %s just left a new comment. Focus on THIS comment — do not confuse it with previous ones:\n\n", authorLabel)
 		fmt.Fprintf(&b, "> %s\n\n", task.TriggerCommentContent)
 		if task.TriggerAuthorType == "agent" {
 			b.WriteString("⚠️ The triggering comment was posted by another agent. Decide whether a reply is warranted. If you produced actual work this turn (investigated, fixed something, answered a real question), post the result as a normal reply — that is NOT a noise comment, and the standard rule that final results must be delivered via comment still applies. If the triggering comment was a pure acknowledgment, thanks, or sign-off AND you produced no work this turn, do NOT reply — and do NOT post a comment saying 'No reply needed' or similar. Simply exit with no output. Silence is the preferred way to end agent-to-agent threads. If you do reply, do not @mention the other agent as a sign-off (that re-triggers them and starts a loop).\n\n")

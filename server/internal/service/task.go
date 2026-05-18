@@ -171,6 +171,13 @@ func (s *TaskService) EnqueueTaskForIssueInTx(ctx context.Context, q *db.Queries
 		Priority:         priorityToInt(issue.Priority),
 		TriggerCommentID: triggerCommentID,
 		TriggerSummary:   s.buildCommentTriggerSummaryQ(ctx, q, triggerCommentID),
+		// ForceFreshSession intentionally omitted (zero pgtype.Bool).
+		// Cascade-spawned runs SHOULD resume the prior agent session so
+		// the agent has full context for what changed (CI failure on the
+		// PR it was just iterating on). If a future caller needs the
+		// force-fresh-session semantics inside a tx, add it as a
+		// parameter rather than flipping the default — the non-tx
+		// EnqueueTaskForIssue keeps the same zero-default convention.
 	})
 	if err != nil {
 		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
