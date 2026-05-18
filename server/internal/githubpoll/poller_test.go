@@ -62,13 +62,15 @@ func newFakeGitHub(body string) *httptest.Server {
 }
 
 func TestPoller_TickOne_DryRunEndToEnd(t *testing.T) {
+	// REST /events shape: action="merged" (not webhook's "closed"
+	// + merged=true), no html_url / title / merged on pull_request.
+	// See PUL-185.
 	body := `[
 		{"id":"200","type":"PullRequestEvent","repo":{"name":"rabbeet/Pulse"},"payload":{
-			"action":"closed","number":99,
+			"action":"merged","number":99,
 			"pull_request":{
 				"number":99,
-				"html_url":"https://github.com/rabbeet/Pulse/pull/99",
-				"title":"[PUL-99] feat: x","merged":true,
+				"url":"https://api.github.com/repos/rabbeet/Pulse/pulls/99",
 				"head":{"sha":"abc123","ref":"agent-1/pul-99-x"}
 			}
 		}},
@@ -177,10 +179,11 @@ func TestPoller_TickOne_SinkErrorStopsAdvance(t *testing.T) {
 	// advance past that event, so the next tick reprocesses it.
 	// Critical for idempotency: a slow downstream must not cause
 	// silent drops.
+	// REST /events shape — see PUL-185.
 	body := `[
 		{"id":"200","type":"PullRequestEvent","repo":{"name":"rabbeet/Pulse"},"payload":{
-			"action":"closed","number":99,
-			"pull_request":{"number":99,"html_url":"https://github.com/rabbeet/Pulse/pull/99","title":"x","merged":true,
+			"action":"merged","number":99,
+			"pull_request":{"number":99,"url":"https://api.github.com/repos/rabbeet/Pulse/pulls/99",
 				"head":{"sha":"abc","ref":"agent-1/x"}}
 		}}
 	]`

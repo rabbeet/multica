@@ -12,8 +12,6 @@
       "id": 444445,
       "number": 531,
       "url": "https://api.github.com/repos/rabbeet/Pulse/pulls/531",
-      "title": "[PUL-158] wip(scope): repair scope filter",
-      "merged": false,
       "head": {
         "sha": "fe38c1120b1c2d3e4f5061728394a5b6c7d8e9f4",
         "ref": "agent-1/pul-158-fix"
