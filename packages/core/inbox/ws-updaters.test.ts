@@ -31,8 +31,12 @@ function makeItem(
     // PUL-177: phase is always present on the wire (server-derived
     // from issue.status with a backlog default), and latest_skill
     // defaults to null for tickets without skill_state history.
+    // PUL-180: ownership + ownership_meta are paired; both null
+    // means "chip hidden" (closed phase or agent recipient).
     phase: "backlog",
     latest_skill: null,
+    ownership: null,
+    ownership_meta: null,
     ...overrides,
   };
 }
