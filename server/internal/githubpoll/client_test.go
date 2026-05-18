@@ -198,13 +198,22 @@ func TestClient_FetchEvents_RateLimit(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(NewStaticTokenSource("pat")).WithBaseURL(srv.URL)
-	_, err := c.FetchEvents(context.Background(), "rabbeet/Pulse", "", 0)
+	got, err := c.FetchEvents(context.Background(), "rabbeet/Pulse", "", 0)
 	var rate ErrRateLimited
 	if !errors.As(err, &rate) {
 		t.Fatalf("err = %v, want ErrRateLimited", err)
 	}
 	if rate.ResetAt.Unix() != reset {
 		t.Errorf("ResetAt = %v, want %v", rate.ResetAt.Unix(), reset)
+	}
+	// Regression guard for review finding: rate info must propagate
+	// to the FetchResult even on the ErrRateLimited path so the
+	// poller's gauge drops to 0 and the alert fires. Without this,
+	// when the budget hits zero the gauge stays at the last 200's
+	// value and ops never sees the problem.
+	if got.RateRemaining != 0 || got.RateLimit != 5000 {
+		t.Errorf("FetchResult on 403 = remaining=%d limit=%d, want remaining=0 limit=5000",
+			got.RateRemaining, got.RateLimit)
 	}
 }
 

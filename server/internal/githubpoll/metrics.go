@@ -1,6 +1,7 @@
 package githubpoll
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -46,11 +47,13 @@ type Metrics struct {
 	// some other code path is burning the budget.
 	rateLimitRemaining sync.Map // map[string]*atomic.Int64
 
-	// CursorAgeSeconds stores the most recently observed
-	// (now - last_polled_at) per repo. Gauge semantics. Alert at
-	// > 120s — the tick is 30s, so two missed ticks is the
-	// canary that the poller goroutine is stuck.
-	cursorAgeSeconds sync.Map // map[string]*atomic.Int64
+	// lastTickUnix stores the wall-clock Unix seconds of the most
+	// recent successful tickOne per repo. The Prometheus collector
+	// derives cursor_age_seconds = now() - lastTickUnix at scrape
+	// time so a stuck goroutine surfaces as a growing gauge (the
+	// silent-death case). Storing a snapshot-time computed delta
+	// would freeze on death and never alert.
+	lastTickUnix sync.Map // map[string]*atomic.Int64
 }
 
 // NewMetrics returns a fresh metrics instance. Pointer receiver
@@ -72,7 +75,10 @@ func (m *Metrics) IncCall(repo string, statusCode int) {
 	if m == nil {
 		return
 	}
-	incMapCounter(&m.callsTotal, repo+"|"+itoa(statusCode))
+	if statusCode < 0 {
+		statusCode = 0
+	}
+	incMapCounter(&m.callsTotal, repo+"|"+strconv.Itoa(statusCode))
 }
 
 // IncEvent increments the per-(repo, event_type) event counter.
@@ -104,26 +110,36 @@ func (m *Metrics) SetRateLimitRemaining(repo string, remaining int) {
 	v.(*atomic.Int64).Store(int64(remaining))
 }
 
-// SetCursorAge records the latest (now - last_polled_at).
-func (m *Metrics) SetCursorAge(repo string, seconds int64) {
+// MarkTickComplete records the wall-clock unix seconds of a
+// completed (or steady-state 304) tickOne for the repo. The
+// Prometheus collector reads this and emits
+// cursor_age_seconds = now() - lastTickUnix at scrape time, so a
+// stuck or panicking goroutine surfaces as a growing gauge that
+// trips the staleness alert. Persisting a precomputed delta would
+// freeze on death and never fire.
+func (m *Metrics) MarkTickComplete(repo string, t int64) {
 	if m == nil {
 		return
 	}
-	v, _ := m.cursorAgeSeconds.LoadOrStore(repo, new(atomic.Int64))
-	v.(*atomic.Int64).Store(seconds)
+	v, _ := m.lastTickUnix.LoadOrStore(repo, new(atomic.Int64))
+	v.(*atomic.Int64).Store(t)
 }
 
 // Snapshot returns a flat map view of all counters / gauges, used by
 // the Prometheus collector and by integration tests. Map keys are
 // the same composite strings the Inc* methods use as their map keys
 // internally — the Prometheus side splits them back into label pairs.
+//
+// LastTickUnix holds raw unix seconds per repo; cursor_age_seconds
+// is derived at scrape time as `now() - LastTickUnix[repo]` so a
+// dead poller produces a growing gauge.
 type Snapshot struct {
 	Panics             int64
 	Calls              map[string]int64 // key: "repo|status_code"
 	Events             map[string]int64 // key: "repo|event_type"
 	SinkErrors         map[string]int64 // key: "repo"
 	RateLimitRemaining map[string]int64 // key: "repo"
-	CursorAgeSeconds   map[string]int64 // key: "repo"
+	LastTickUnix       map[string]int64 // key: "repo"
 }
 
 // Snapshot is concurrency-safe and lock-free; readers see a
@@ -139,7 +155,7 @@ func (m *Metrics) Snapshot() Snapshot {
 		Events:             flattenMap(&m.eventsTotal),
 		SinkErrors:         flattenMap(&m.sinkErrorsTotal),
 		RateLimitRemaining: flattenMap(&m.rateLimitRemaining),
-		CursorAgeSeconds:   flattenMap(&m.cursorAgeSeconds),
+		LastTickUnix:       flattenMap(&m.lastTickUnix),
 	}
 	return out
 }
@@ -163,19 +179,3 @@ func flattenMap(m *sync.Map) map[string]int64 {
 	return out
 }
 
-// itoa avoids importing strconv just for this single call. Limited
-// to small non-negative integers (HTTP status codes); negative input
-// is normalized to 0.
-func itoa(n int) string {
-	if n <= 0 {
-		return "0"
-	}
-	var buf [4]byte
-	i := len(buf)
-	for n > 0 && i > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
-}

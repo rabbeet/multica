@@ -16,9 +16,10 @@ func TestMetrics_IncAndSnapshot(t *testing.T) {
 	m.IncEvent("rabbeet/multica", "pr_merged")
 	m.IncSinkError("rabbeet/Pulse")
 	m.SetRateLimitRemaining("rabbeet/Pulse", 4321)
-	m.SetCursorAge("rabbeet/Pulse", 17)
+	m.MarkTickComplete("rabbeet/Pulse", 1700000000)
 	// Override should win.
 	m.SetRateLimitRemaining("rabbeet/Pulse", 4320)
+	m.MarkTickComplete("rabbeet/Pulse", 1700000060)
 
 	s := m.Snapshot()
 	if s.Panics != 1 {
@@ -40,8 +41,8 @@ func TestMetrics_IncAndSnapshot(t *testing.T) {
 	if s.RateLimitRemaining["rabbeet/Pulse"] != 4320 {
 		t.Errorf("RateLimitRemaining gauge did not overwrite: %d", s.RateLimitRemaining["rabbeet/Pulse"])
 	}
-	if s.CursorAgeSeconds["rabbeet/Pulse"] != 17 {
-		t.Errorf("CursorAgeSeconds = %d, want 17", s.CursorAgeSeconds["rabbeet/Pulse"])
+	if s.LastTickUnix["rabbeet/Pulse"] != 1700000060 {
+		t.Errorf("LastTickUnix = %d, want 1700000060 (overwritten)", s.LastTickUnix["rabbeet/Pulse"])
 	}
 }
 
@@ -56,7 +57,7 @@ func TestMetrics_NilSafe(t *testing.T) {
 	m.IncEvent("x", "ci_failure")
 	m.IncSinkError("x")
 	m.SetRateLimitRemaining("x", 5)
-	m.SetCursorAge("x", 5)
+	m.MarkTickComplete("x", 1700000000)
 	if m.Snapshot().Panics != 0 {
 		t.Error("nil snapshot should produce zero panics")
 	}
@@ -92,21 +93,15 @@ func TestMetrics_Concurrent(t *testing.T) {
 	}
 }
 
-func TestItoa(t *testing.T) {
-	cases := []struct {
-		in   int
-		want string
-	}{
-		{0, "0"},
-		{-1, "0"},
-		{1, "1"},
-		{200, "200"},
-		{304, "304"},
-		{9999, "9999"},
-	}
-	for _, tc := range cases {
-		if got := itoa(tc.in); got != tc.want {
-			t.Errorf("itoa(%d) = %q, want %q", tc.in, got, tc.want)
-		}
+func TestIncCall_NegativeStatusClampedToZero(t *testing.T) {
+	// strconv.Itoa would produce "-1" for a negative status — not
+	// a label value any caller would write intentionally. The
+	// upstream Client passes 0 explicitly for the "no response"
+	// bucket, but defensive clamping keeps the metric label set
+	// sane if a future caller ever forgets.
+	m := NewMetrics()
+	m.IncCall("rabbeet/Pulse", -1)
+	if m.Snapshot().Calls["rabbeet/Pulse|0"] != 1 {
+		t.Errorf("expected negative status to clamp to 0, got: %+v", m.Snapshot().Calls)
 	}
 }
