@@ -1,0 +1,23 @@
+{
+  "id": "33000000001",
+  "type": "WorkflowRunEvent",
+  "actor": {"id": 100, "login": "octocat"},
+  "repo": {"id": 1, "name": "rabbeet/Pulse", "url": "https://api.github.com/repos/rabbeet/Pulse"},
+  "public": true,
+  "created_at": "2026-05-17T18:01:11Z",
+  "payload": {
+    "action": "completed",
+    "workflow_run": {
+      "id": 7700000001,
+      "name": "CI",
+      "head_branch": "agent-1/pul-157-fix",
+      "head_sha": "18fa800a0b1c2d3e4f5061728394a5b6c7d8e9f0",
+      "status": "completed",
+      "conclusion": "failure",
+      "pull_requests": [
+        {"id": 9999, "number": 530, "url": "https://api.github.com/repos/rabbeet/Pulse/pulls/530"}
+      ]
+    },
+    "workflow": {"id": 1, "name": "CI", "path": ".github/workflows/ci.yml"}
+  }
+}

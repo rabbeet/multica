@@ -1,0 +1,23 @@
+{
+  "id": "33000000021",
+  "type": "PullRequestEvent",
+  "actor": {"id": 100, "login": "octocat"},
+  "repo": {"id": 1, "name": "rabbeet/Pulse", "url": "https://api.github.com/repos/rabbeet/Pulse"},
+  "public": true,
+  "created_at": "2026-05-17T18:21:11Z",
+  "payload": {
+    "action": "closed",
+    "number": 531,
+    "pull_request": {
+      "id": 444445,
+      "number": 531,
+      "html_url": "https://github.com/rabbeet/Pulse/pull/531",
+      "title": "[PUL-158] wip(scope): repair scope filter",
+      "merged": false,
+      "head": {
+        "sha": "fe38c1120b1c2d3e4f5061728394a5b6c7d8e9f4",
+        "ref": "agent-1/pul-158-fix"
+      }
+    }
+  }
+}

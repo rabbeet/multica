@@ -326,6 +326,12 @@ func main() {
 	go runChildProgressScheduler(autopilotCtx, queries, bus, commentSvc)
 	go runDBStatsLogger(sweepCtx, pool)
 
+	// PUL-166 PR2: github outbound poller (dry-run). Replaces the
+	// inbound webhook ingress when PR4 cuts traffic over. Gated by
+	// MULTICA_GITHUB_POLL_ENABLED — default-off; PR3 lights it up in
+	// staging, PR4 flips webhook OFF first then poll ON.
+	runGithubPoller(autopilotCtx, pool)
+
 	if metricsServer != nil {
 		go func() {
 			slog.Info("metrics server starting", "addr", metricsConfig.Addr)
