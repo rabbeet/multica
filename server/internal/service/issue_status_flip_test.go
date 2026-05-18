@@ -112,6 +112,30 @@ func TestDecideFlip(t *testing.T) {
 			want:    nil,
 		},
 
+		// ── PUL-164 child_progress regression-prevention: the fan-out
+		// worker posts comments of type='child_progress' on parent issues
+		// when a child's status changes. If DecideFlip ever started firing
+		// for this type, we would get an agent loop: parent in waiting →
+		// fan-out comment flips parent to in_progress → assigned agent
+		// wakes up → agent comments → flip back → infinite. The author of
+		// fan-out comments is always 'system' (not 'member' or 'agent'),
+		// but we also test member+agent author cases here because the
+		// system-author filter is at the call site, not in DecideFlip.
+		// The type='child_progress' filter is what guarantees the loop
+		// cannot start regardless of author.
+		{
+			name:    "type=child_progress on waiting → no flip (PUL-164)",
+			comment: mkComment("member", memberM, CommentTypeChildProgress),
+			issue:   mkIssue("waiting", "agent", agentA),
+			want:    nil,
+		},
+		{
+			name:    "type=child_progress on in_progress → no flip (PUL-164)",
+			comment: mkComment("agent", agentA, CommentTypeChildProgress),
+			issue:   mkIssue("in_progress", "agent", agentA),
+			want:    nil,
+		},
+
 		// ── assignee_type filter ──────────────────────────────────────────
 		{
 			name:    "assignee_type=member → no flip (Rule A)",

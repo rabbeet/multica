@@ -69,6 +69,20 @@ type CommentCreateParams struct {
 	Type        string
 	ParentID    pgtype.UUID
 
+	// Meta is a structured payload stored on comment.meta JSONB. Used by
+	// non-comment types (currently 'child_progress') to carry data the
+	// frontend needs for read-time rendering. nil/empty leaves the column at
+	// its default '{}'::jsonb. The discriminator is `meta.kind` (matching
+	// comment.type); callers are responsible for serialising a valid payload.
+	Meta []byte
+
+	// SourceHistoryID points at the issue_status_history row that produced
+	// this comment, when applicable. Currently only set for
+	// type='child_progress' fan-outs — feeds the
+	// (source_history_id, issue_id) WHERE type='child_progress' unique
+	// idempotency index. A duplicate insert returns ErrCommentAlreadyExists.
+	SourceHistoryID pgtype.Int8
+
 	SkipDecideFlip   bool
 	StatusTransition *StatusTransition
 }
@@ -122,6 +136,11 @@ var (
 	// ErrInvalidParent is returned when ParentID is set but does not belong
 	// to the same issue.
 	ErrInvalidParent = errors.New("invalid parent comment")
+	// ErrCommentAlreadyExists is returned when CreateComment violates a
+	// unique constraint — currently only the (source_history_id, issue_id)
+	// idempotency index for type='child_progress'. Callers that expect this
+	// (the child_progress fan-out worker, mainly) treat it as success.
+	ErrCommentAlreadyExists = errors.New("comment already exists")
 )
 
 // Create executes the transactional core: row-lock the issue, INSERT the
@@ -166,15 +185,24 @@ func (s *CommentService) Create(ctx context.Context, p CommentCreateParams) (Com
 	}
 
 	comment, err := qtx.CreateComment(ctx, db.CreateCommentParams{
-		IssueID:     lockedIssue.ID,
-		WorkspaceID: lockedIssue.WorkspaceID,
-		AuthorType:  p.AuthorType,
-		AuthorID:    p.AuthorID,
-		Content:     p.Content,
-		Type:        p.Type,
-		ParentID:    p.ParentID,
+		IssueID:         lockedIssue.ID,
+		WorkspaceID:     lockedIssue.WorkspaceID,
+		AuthorType:      p.AuthorType,
+		AuthorID:        p.AuthorID,
+		Content:         p.Content,
+		Type:            p.Type,
+		ParentID:        p.ParentID,
+		Meta:            p.Meta,
+		SourceHistoryID: p.SourceHistoryID,
 	})
 	if err != nil {
+		// PUL-164: the (source_history_id, issue_id) WHERE type='child_progress'
+		// unique partial index is the idempotency contract for the fan-out
+		// worker. Surface it as ErrCommentAlreadyExists so the worker can
+		// treat duplicate fires as success without parsing pg error codes.
+		if isUniqueViolation(err) {
+			return empty, ErrCommentAlreadyExists
+		}
 		return empty, fmt.Errorf("insert comment: %w", err)
 	}
 
@@ -193,7 +221,7 @@ func (s *CommentService) Create(ctx context.Context, p CommentCreateParams) (Com
 				return empty, fmt.Errorf("apply status transition: %w", err)
 			}
 
-			_, err = qtx.InsertStatusHistory(ctx, db.InsertStatusHistoryParams{
+			history, histErr := qtx.InsertStatusHistory(ctx, db.InsertStatusHistoryParams{
 				IssueID:    lockedIssue.ID,
 				FromStatus: pgtype.Text{String: lockedIssue.Status, Valid: true},
 				ToStatus:   t.ToStatus,
@@ -205,8 +233,30 @@ func (s *CommentService) Create(ctx context.Context, p CommentCreateParams) (Com
 			// UNIQUE (source, ref_id) is the dedup contract. A duplicate fire on
 			// the same RefID is treated as an idempotent no-op so retries (worker
 			// crash mid-fire, hook replay) do not break the transaction.
-			if err != nil && !isUniqueViolation(err) {
-				return empty, fmt.Errorf("insert status history: %w", err)
+			switch {
+			case histErr == nil:
+				// Fresh history row → eligible for child_progress fan-out.
+				// PUL-164: enqueue the fan-out row inside this tx so the
+				// outbox INSERT commits atomically with the status flip.
+				if lockedIssue.ParentIssueID.Valid {
+					if _, _, fanErr := EnqueueChildProgressFanout(ctx, qtx, EnqueueChildProgressParams{
+						WorkspaceID:     lockedIssue.WorkspaceID,
+						SourceHistoryID: history.ID,
+						ChildIssueID:    lockedIssue.ID,
+						PrevStatus:      lockedIssue.Status,
+						NewStatus:       t.ToStatus,
+						ActorID:         t.ActorID,
+						ActorType:       pgtype.Text{String: t.ActorType, Valid: t.ActorType != ""},
+					}); fanErr != nil {
+						return empty, fmt.Errorf("enqueue child_progress fanout (explicit): %w", fanErr)
+					}
+				}
+			case isUniqueViolation(histErr):
+				// Idempotent replay: history row already exists, do NOT
+				// enqueue a duplicate fan-out (the original write already
+				// did so, and our outbox uniqueness keys on history.id).
+			default:
+				return empty, fmt.Errorf("insert status history: %w", histErr)
 			}
 
 			updatedIssue = ui
@@ -228,7 +278,7 @@ func (s *CommentService) Create(ctx context.Context, p CommentCreateParams) (Com
 				return empty, fmt.Errorf("decideflip status update: %w", err)
 			}
 
-			_, err = qtx.InsertStatusHistory(ctx, db.InsertStatusHistoryParams{
+			history, histErr := qtx.InsertStatusHistory(ctx, db.InsertStatusHistoryParams{
 				IssueID:    lockedIssue.ID,
 				FromStatus: pgtype.Text{String: transition.FromStatus, Valid: true},
 				ToStatus:   transition.ToStatus,
@@ -237,8 +287,32 @@ func (s *CommentService) Create(ctx context.Context, p CommentCreateParams) (Com
 				ActorType:  pgtype.Text{String: comment.AuthorType, Valid: true},
 				RefID:      pgtype.Text{String: util.UUIDToString(comment.ID), Valid: true},
 			})
-			if err != nil && !isUniqueViolation(err) {
-				return empty, fmt.Errorf("decideflip history insert: %w", err)
+			switch {
+			case histErr == nil:
+				// PUL-164: child_progress fan-out. Note: DecideFlip only
+				// fires the waiting↔in_progress pair, which is precisely
+				// the noisyTransitions set ShouldFanOutTransition filters
+				// out — so in practice this enqueue call is always a no-op
+				// today. Still call it to be future-proof: any future
+				// DecideFlip rule emitting a different pair will fan out
+				// without code changes here.
+				if lockedIssue.ParentIssueID.Valid {
+					if _, _, fanErr := EnqueueChildProgressFanout(ctx, qtx, EnqueueChildProgressParams{
+						WorkspaceID:     lockedIssue.WorkspaceID,
+						SourceHistoryID: history.ID,
+						ChildIssueID:    lockedIssue.ID,
+						PrevStatus:      transition.FromStatus,
+						NewStatus:       transition.ToStatus,
+						ActorID:         comment.AuthorID,
+						ActorType:       pgtype.Text{String: comment.AuthorType, Valid: true},
+					}); fanErr != nil {
+						return empty, fmt.Errorf("enqueue child_progress fanout (decideflip): %w", fanErr)
+					}
+				}
+			case isUniqueViolation(histErr):
+				// Idempotent replay — see explicit-transition branch above.
+			default:
+				return empty, fmt.Errorf("decideflip history insert: %w", histErr)
 			}
 
 			updatedIssue = ui
