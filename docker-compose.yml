@@ -1,4 +1,10 @@
-name: multica
+# Project name is parameterized so operator-deploy environments can override
+# it (e.g. `multica-prod` in /opt/multica-server/docker-compose.local.yml)
+# while plain `docker compose up` from a dev checkout or an agent worktree
+# defaults to `multica-dev`. Sharing the literal name `multica` between prod
+# and worktrees lets any worktree's compose-up silently replace prod
+# containers — see PUL-188 for the incident.
+name: ${COMPOSE_PROJECT_NAME:-multica-dev}
 
 services:
   postgres:
