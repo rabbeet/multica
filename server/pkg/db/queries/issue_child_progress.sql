@@ -13,14 +13,15 @@
 -- case is already filtered by the service before this call, so reaching
 -- here with an orphan child is a programmer error worth surfacing).
 WITH RECURSIVE ancestors AS (
-    SELECT issue.id, issue.parent_issue_id, 1 AS depth
+    SELECT issue.id, issue.parent_issue_id, 1 AS depth, ARRAY[issue.id] AS visited
       FROM issue
       WHERE issue.id = @child_issue_id AND issue.parent_issue_id IS NOT NULL
     UNION ALL
-    SELECT i.id, i.parent_issue_id, a.depth + 1
+    SELECT i.id, i.parent_issue_id, a.depth + 1, a.visited || i.id
       FROM issue i
       JOIN ancestors a ON i.id = a.parent_issue_id
       WHERE a.depth < 5
+        AND NOT i.id = ANY(a.visited)
 ),
 chain AS (
     SELECT array_agg(parent_issue_id ORDER BY depth) AS ids
@@ -119,14 +120,15 @@ SELECT * FROM issue_child_progress_outbox WHERE id = @id;
 -- chain ahead of the outbox INSERT (e.g. to suppress fan-out when chain is
 -- empty without raising a check violation).
 WITH RECURSIVE ancestors AS (
-    SELECT issue.id, issue.parent_issue_id, 1 AS depth
+    SELECT issue.id, issue.parent_issue_id, 1 AS depth, ARRAY[issue.id] AS visited
       FROM issue
       WHERE issue.id = @child_issue_id AND issue.parent_issue_id IS NOT NULL
     UNION ALL
-    SELECT i.id, i.parent_issue_id, a.depth + 1
+    SELECT i.id, i.parent_issue_id, a.depth + 1, a.visited || i.id
       FROM issue i
       JOIN ancestors a ON i.id = a.parent_issue_id
       WHERE a.depth < 5
+        AND NOT i.id = ANY(a.visited)
 )
 SELECT COALESCE(array_agg(parent_issue_id ORDER BY depth), ARRAY[]::UUID[])::UUID[] AS ancestor_chain
   FROM ancestors

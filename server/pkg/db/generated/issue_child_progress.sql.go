@@ -110,14 +110,15 @@ func (q *Queries) ClaimDueChildProgressOutbox(ctx context.Context) ([]IssueChild
 const enqueueChildProgressFanout = `-- name: EnqueueChildProgressFanout :one
 
 WITH RECURSIVE ancestors AS (
-    SELECT issue.id, issue.parent_issue_id, 1 AS depth
+    SELECT issue.id, issue.parent_issue_id, 1 AS depth, ARRAY[issue.id] AS visited
       FROM issue
       WHERE issue.id = $3 AND issue.parent_issue_id IS NOT NULL
     UNION ALL
-    SELECT i.id, i.parent_issue_id, a.depth + 1
+    SELECT i.id, i.parent_issue_id, a.depth + 1, a.visited || i.id
       FROM issue i
       JOIN ancestors a ON i.id = a.parent_issue_id
       WHERE a.depth < 5
+        AND NOT i.id = ANY(a.visited)
 ),
 chain AS (
     SELECT array_agg(parent_issue_id ORDER BY depth) AS ids
@@ -230,14 +231,15 @@ func (q *Queries) GetChildProgressOutbox(ctx context.Context, id pgtype.UUID) (I
 
 const getIssueAncestorChain = `-- name: GetIssueAncestorChain :one
 WITH RECURSIVE ancestors AS (
-    SELECT issue.id, issue.parent_issue_id, 1 AS depth
+    SELECT issue.id, issue.parent_issue_id, 1 AS depth, ARRAY[issue.id] AS visited
       FROM issue
       WHERE issue.id = $1 AND issue.parent_issue_id IS NOT NULL
     UNION ALL
-    SELECT i.id, i.parent_issue_id, a.depth + 1
+    SELECT i.id, i.parent_issue_id, a.depth + 1, a.visited || i.id
       FROM issue i
       JOIN ancestors a ON i.id = a.parent_issue_id
       WHERE a.depth < 5
+        AND NOT i.id = ANY(a.visited)
 )
 SELECT COALESCE(array_agg(parent_issue_id ORDER BY depth), ARRAY[]::UUID[])::UUID[] AS ancestor_chain
   FROM ancestors

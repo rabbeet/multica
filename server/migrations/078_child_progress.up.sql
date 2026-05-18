@@ -34,6 +34,22 @@ ALTER TABLE comment ADD CONSTRAINT comment_type_check
         'child_progress'   -- new (PUL-164)
     ));
 
+-- (1b) comment.author_type whitelist extension. The fan-out worker authors
+--      comments under author_type='system' (no real user behind the action
+--      when the trigger was a system path like service.TaskService failed
+--      task reset). PUL-154 did not need this because its reminder author
+--      was always the reminder's human creator. PUL-164 does.
+ALTER TABLE comment DROP CONSTRAINT IF EXISTS comment_author_type_check;
+ALTER TABLE comment ADD CONSTRAINT comment_author_type_check
+    CHECK (author_type IN ('member', 'agent', 'system'));
+
+-- (1c) comment.author_id was NOT NULL. Relax to nullable so 'system'
+--      authored comments can carry NULL (there is no real user UUID
+--      behind them). The handler-side guards already enforce that
+--      member/agent authored comments always have a non-null author_id
+--      (request boundary validates the X-User-ID / X-Agent-ID header).
+ALTER TABLE comment ALTER COLUMN author_id DROP NOT NULL;
+
 -- (2) comment.meta JSONB. Generic payload for non-comment types. v1 consumer
 --     is child_progress; PUL-154 wake_up could migrate to it later without
 --     schema churn. Default '{}' so existing rows remain valid.
