@@ -17,8 +17,10 @@ import (
 //
 // Two-stage pipeline:
 //
-//  1. extractSkillCandidates — pure regex, no DB. Pulls every plausible
-//     /<slug> token out of the content. Cheap; can run inline.
+//  1. extractSkillCandidates — pure string work, no DB. Strips
+//     markdown non-text (blockquotes, fenced code, inline code spans)
+//     via stripMarkdownNonText, then runs skillCandidateRe to pull
+//     /<slug> tokens out of the remaining prose. Cheap; can run inline.
 //
 //  2. inferSkillStatesFromComment — filters candidates against the
 //     workspace skill registry (skill table from migration 008). Only
@@ -26,16 +28,25 @@ import (
 //     unknown slugs are silently dropped — we don't want false-positive
 //     chips from `/agree`, `/me`, etc. polluting the Inbox row.
 //
-// Known limitations carried over from the plan as PUL-181 follow-up:
+// PUL-181 markdown-aware preprocessing covers:
 //
-//  - The regex matches inside fenced code blocks (```) and inline
-//    backtick spans. A user pasting "`/office-hours`" gets a chip.
-//  - The regex matches inside markdown blockquotes ("> /skill"). A
-//    user quoting another comment also gets a chip.
+//   - Blockquote lines ("> …") — stripped before regex.
+//   - Fenced code blocks (``` … ``` or ~~~ … ~~~) — stripped.
+//   - Inline code spans (`…`) — stripped on remaining lines.
 //
-// Both are accepted as v1 noise. PUL-181 swaps the regex for a real
-// markdown-aware parser when the false-positive rate becomes a
-// problem.
+// Out of scope (frozen as known limitations in skill_phase_test.go):
+// lazy blockquote continuation, indented (4-space) code blocks, and
+// unbalanced backtick spans. See plans://Multica/2026-05-18-pul-181-…
+// for the trade-offs.
+
+// maxAutoDetectContentBytes caps the content size that the markdown
+// stripper + regex pipeline will process (PUL-181 D1A). Skill
+// auto-detect is a nice-to-have; pathological multi-MB pastes
+// (logs, dumps) should silently skip rather than block the
+// synchronous comment-create HTTP response on a multi-millisecond
+// strip. 100 KB cleanly covers every realistic human-written
+// comment — the editor itself caps single comments well below this.
+const maxAutoDetectContentBytes = 100_000
 
 // skillCandidateRe matches /<slug> tokens that appear at the start of
 // a line or after whitespace. Multiline mode lets ^ match each line.
@@ -46,11 +57,16 @@ import (
 var skillCandidateRe = regexp.MustCompile(`(?m)(?:^|\s)/([a-z0-9][a-z0-9-]{0,63})\b`)
 
 // extractSkillCandidates returns the deduplicated set of slug tokens
-// found in `content`. Empty slice when nothing matches.
+// found in `content`. Empty slice when nothing matches, when content
+// is empty, or when content exceeds the size guard (PUL-181 D1A).
 func extractSkillCandidates(content string) []string {
 	if content == "" {
 		return nil
 	}
+	if len(content) > maxAutoDetectContentBytes {
+		return nil
+	}
+	content = stripMarkdownNonText(content)
 	matches := skillCandidateRe.FindAllStringSubmatch(content, -1)
 	if len(matches) == 0 {
 		return nil

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -53,16 +54,53 @@ func TestExtractSkillCandidates(t *testing.T) {
 		{"three distinct slugs", "/foo-bar /a-b /x", []string{"foo-bar", "a-b", "x"}},
 		{"slash with uppercase or digit start gets rejected by regex shape",
 			"/Office-Hours /9skill", []string{"9skill"}},
-		// PUL-181 known limitation: regex matches inside blockquotes
-		// because the `>` line marker is followed by whitespace before
-		// the slash. Frozen here so a future markdown-aware swap is
-		// an explicit diff, not a silent behavior change.
-		{"blockquote false-positive (PUL-181)", "> /office-hours", []string{"office-hours"}},
-		// Inline-code backticks are NOT whitespace, so the regex
-		// already excludes them — locked in as the documented
-		// correct behavior. PUL-181's parser swap will add fenced
-		// code-block coverage on top of this baseline.
-		{"inline code is correctly excluded (regex needs whitespace)", "`/office-hours`", nil},
+		// PUL-181: markdown-aware stripper now removes blockquote
+		// lines before regex sees them. This case was a
+		// KNOWN-LIMITATION in PUL-177; flipped to nil here as the
+		// regression anchor that proves the fix landed.
+		{"blockquote (PUL-181 fixed)", "> /office-hours", nil},
+		// Inline-code spans are stripped on remaining lines by the
+		// stripper. Locked in as the documented correct behavior.
+		{"inline code excluded", "`/office-hours`", nil},
+
+		// PUL-181 added coverage — multi-line markdown constructs:
+		{"multiline blockquote", "> first line\n> /office-hours second\n> third", nil},
+		{"blockquote inside otherwise normal text",
+			"start\n> /office-hours\nend", nil},
+		{"fenced code block (backticks)", "```\n/office-hours\n```", nil},
+		{"fenced code block (tildes)", "~~~\n/qa\n~~~", nil},
+		{"fenced code block with language tag",
+			"```bash\n/plan-eng-review\n```", nil},
+		{"unclosed fence treats rest as inside", "```\n/office-hours", nil},
+		{"prose adjacent to inline code span",
+			"run /office-hours, see `/qa` for details", []string{"office-hours"}},
+		{"inline code stripped on real line",
+			"hey `/office-hours` lol", nil},
+		{"inline code with prose skill outside",
+			"before `/qa` middle /office-hours after", []string{"office-hours"}},
+		{"blockquote and prose mixed",
+			"> /qa quoted\nactual /office-hours", []string{"office-hours"}},
+
+		// PUL-181 KNOWN-LIMITATION anchors — frozen v1 behavior.
+		// Update these explicitly when the parser graduates to full
+		// CommonMark coverage.
+		{"[KNOWN-LIMITATION] lazy blockquote continuation",
+			"> first\n/office-hours continuation", []string{"office-hours"}},
+		{"[KNOWN-LIMITATION] indented code block (4-space)",
+			"    /office-hours", []string{"office-hours"}},
+		// An UNBALANCED-backtick that opens with no closer leaves the
+		// rest of the line as plain text from the regex's POV. The
+		// classic false-positive: a user starts a sentence with
+		// "`note: see /office-hours later" but forgets the closing
+		// backtick. CommonMark also treats this as not-code.
+		{"[KNOWN-LIMITATION] unbalanced backticks",
+			"`note see /office-hours later", []string{"office-hours"}},
+
+		// PUL-181 D1A: content size guard.
+		{"content size guard skips large input",
+			strings.Repeat("a ", 60_000) + " /office-hours", nil},
+		{"content just under guard still detects",
+			strings.Repeat("a ", 100) + " /qa", []string{"qa"}},
 	}
 
 	for _, c := range cases {
