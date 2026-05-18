@@ -89,16 +89,25 @@ func registerSubscriberListeners(bus *events.Bus, queries *db.Queries) {
 		}
 
 		// Comments created via handler use CommentResponse; agent comments from task.go use map[string]any
-		var issueID, authorType, authorID string
+		var issueID, authorType, authorID, commentType string
 		if comment, ok := payload["comment"].(handler.CommentResponse); ok {
 			issueID = comment.IssueID
 			authorType = comment.AuthorType
 			authorID = comment.AuthorID
+			commentType = comment.Type
 		} else if commentMap, ok := payload["comment"].(map[string]any); ok {
 			issueID, _ = commentMap["issue_id"].(string)
 			authorType, _ = commentMap["author_type"].(string)
 			authorID, _ = commentMap["author_id"].(string)
+			commentType, _ = commentMap["type"].(string)
 		} else {
+			return
+		}
+		// PUL-168: system comments have no human/agent author and must
+		// not auto-subscribe anyone. Skipping here also protects
+		// addSubscriber from the NULL author_id row that cascade synth
+		// comments produce after migration 078 relaxes the column.
+		if commentType == "system" {
 			return
 		}
 		if issueID == "" || authorID == "" {

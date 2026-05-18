@@ -76,10 +76,17 @@ func truncateForSummary(s string, maxRunes int) string {
 // the comment is missing (deleted / wrong workspace / etc) so the column
 // stays NULL — front-end falls back to a structural label in that case.
 func (s *TaskService) buildCommentTriggerSummary(ctx context.Context, commentID pgtype.UUID) pgtype.Text {
+	return s.buildCommentTriggerSummaryQ(ctx, s.Queries, commentID)
+}
+
+// buildCommentTriggerSummaryQ is the q-parameterised variant so callers
+// inside a tx can resolve the summary against tx-visible state (a row
+// just inserted in the same tx is invisible to s.Queries).
+func (s *TaskService) buildCommentTriggerSummaryQ(ctx context.Context, q *db.Queries, commentID pgtype.UUID) pgtype.Text {
 	if !commentID.Valid {
 		return pgtype.Text{}
 	}
-	comment, err := s.Queries.GetComment(ctx, commentID)
+	comment, err := q.GetComment(ctx, commentID)
 	if err != nil {
 		return pgtype.Text{}
 	}
@@ -130,6 +137,64 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, t
 		commentID = triggerCommentID[0]
 	}
 	return s.enqueueIssueTask(ctx, issue, commentID, false)
+}
+
+// EnqueueTaskForIssueInTx is the tx-aware variant of EnqueueTaskForIssue.
+// All DB reads/writes use the provided q (typically s.Queries.WithTx(tx))
+// so an in-flight tx's writes are visible (e.g. a synthetic trigger comment
+// inserted in the same tx). It does NOT broadcast events or notify the
+// daemon — the caller MUST invoke AnnounceTaskQueued after the surrounding
+// tx commits so observers never see uncommitted state.
+//
+// The deterministic enqueue-gate sentinels (ErrIssueHasNoAssignee,
+// ErrAssigneeAgentArchived, ErrAssigneeAgentNoRuntime) are returned
+// unwrapped — the caller decides whether to translate them into a
+// permanent-skip signal (e.g. cascade.ErrSpawnGated) or rollback the tx.
+func (s *TaskService) EnqueueTaskForIssueInTx(ctx context.Context, q *db.Queries, issue db.Issue, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
+	if !issue.AssigneeID.Valid {
+		return db.AgentTaskQueue{}, ErrIssueHasNoAssignee
+	}
+	agent, err := q.GetAgent(ctx, issue.AssigneeID)
+	if err != nil {
+		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+	}
+	if agent.ArchivedAt.Valid {
+		return db.AgentTaskQueue{}, ErrAssigneeAgentArchived
+	}
+	if !agent.RuntimeID.Valid {
+		return db.AgentTaskQueue{}, ErrAssigneeAgentNoRuntime
+	}
+	task, err := q.CreateAgentTask(ctx, db.CreateAgentTaskParams{
+		AgentID:          issue.AssigneeID,
+		RuntimeID:        agent.RuntimeID,
+		IssueID:          issue.ID,
+		Priority:         priorityToInt(issue.Priority),
+		TriggerCommentID: triggerCommentID,
+		TriggerSummary:   s.buildCommentTriggerSummaryQ(ctx, q, triggerCommentID),
+		// ForceFreshSession intentionally omitted (zero pgtype.Bool).
+		// Cascade-spawned runs SHOULD resume the prior agent session so
+		// the agent has full context for what changed (CI failure on the
+		// PR it was just iterating on). If a future caller needs the
+		// force-fresh-session semantics inside a tx, add it as a
+		// parameter rather than flipping the default — the non-tx
+		// EnqueueTaskForIssue keeps the same zero-default convention.
+	})
+	if err != nil {
+		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
+	}
+	return task, nil
+}
+
+// AnnounceTaskQueued publishes the task:queued event and notifies the
+// daemon. Intended to be called by EnqueueTaskForIssueInTx callers AFTER
+// the surrounding tx commits — broadcasting inside a tx would let a UI
+// observer see a task that vanishes on rollback.
+func (s *TaskService) AnnounceTaskQueued(ctx context.Context, task db.AgentTaskQueue) {
+	// Same order as enqueueIssueTask: broadcast first so the queued event
+	// reaches clients before the daemon's own task:dispatch event from a
+	// fast claim path.
+	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
+	s.notifyTaskAvailable(task)
 }
 
 // enqueueIssueTask is the shared implementation behind EnqueueTaskForIssue

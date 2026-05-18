@@ -634,17 +634,29 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		// The comment payload can come as handler.CommentResponse from the
 		// HTTP handler, or as map[string]any from the agent comment path in
 		// task.go. Handle both.
-		var issueID, commentID, commentContent string
+		var issueID, commentID, commentContent, commentType string
 		switch c := payload["comment"].(type) {
 		case handler.CommentResponse:
 			issueID = c.IssueID
 			commentID = c.ID
 			commentContent = c.Content
+			commentType = c.Type
 		case map[string]any:
 			issueID, _ = c["issue_id"].(string)
 			commentID, _ = c["id"].(string)
 			commentContent, _ = c["content"].(string)
+			commentType, _ = c["type"].(string)
 		default:
+			return
+		}
+
+		// PUL-168: system comments (cascade synth wake-up notes,
+		// future status-change records) are an internal signalling
+		// channel — they must NOT fan out a `new_comment`
+		// notification to every issue subscriber. Mention parsing is
+		// also skipped because system bodies are platform-generated
+		// and never contain user-targeted @ links.
+		if commentType == "system" {
 			return
 		}
 

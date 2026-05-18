@@ -15,8 +15,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/multica-ai/multica/server/internal/cascade"
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 // startCascadeBackground constructs and starts the cascade worker +
@@ -31,7 +33,7 @@ import (
 // The goroutines run under context.Background() for the process
 // lifetime. Graceful shutdown of cascade work is a follow-up; the
 // router doesn't currently expose a shutdown context to threads.
-func startCascadeBackground(pool *pgxpool.Pool, queries *db.Queries, taskSvc *service.TaskService, logger *slog.Logger) {
+func startCascadeBackground(pool *pgxpool.Pool, queries *db.Queries, taskSvc *service.TaskService, bus *events.Bus, logger *slog.Logger) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -52,7 +54,13 @@ func startCascadeBackground(pool *pgxpool.Pool, queries *db.Queries, taskSvc *se
 		return
 	}
 
-	spawner := &taskServiceSpawner{queries: queries, taskSvc: taskSvc}
+	spawner := &taskServiceSpawner{
+		pool:    pool,
+		queries: queries,
+		taskSvc: taskSvc,
+		bus:     bus,
+		logger:  logger,
+	}
 	loader := &queriesIssueLoader{queries: queries, workspaceID: wsUUID}
 	worker := cascade.NewWorker(pool, spawner, loader, logger)
 
@@ -93,25 +101,70 @@ func cascadeFlagEnabled() bool {
 }
 
 // taskServiceSpawner adapts service.TaskService to the
-// cascade.Spawner interface. Spawn loads the issue (the queue
-// enqueue needs a full db.Issue) and calls EnqueueTaskForIssue;
-// HasActiveRun delegates to the existing queries.
+// cascade.Spawner interface.
+//
+// Spawn inserts a synthetic system comment carrying the cascade
+// TriggerContext, then enqueues a task referencing it via the new
+// trigger_comment_id wiring. The comment is the seam that lets
+// daemon.buildCommentPrompt's existing [NEW COMMENT] path surface the
+// wake-up reason — DO NOT remove the comment insert without also
+// extending daemon.BuildPrompt to read TriggerSummary directly.
+// See PUL-168.
+//
+// The comment insert and the task enqueue run in a single pgx tx
+// so a transient enqueue failure rolls the comment back and the next
+// worker retry inserts fresh state — no duplicate "🤖 cascade wake-up"
+// comments accumulating in the thread.
 type taskServiceSpawner struct {
+	pool    *pgxpool.Pool
 	queries *db.Queries
 	taskSvc *service.TaskService
+	bus     *events.Bus
+	logger  *slog.Logger
 }
 
-func (s *taskServiceSpawner) Spawn(ctx context.Context, issueID uuid.UUID, _ cascade.TriggerContext) error {
+func (s *taskServiceSpawner) Spawn(ctx context.Context, issueID uuid.UUID, tc cascade.TriggerContext) error {
 	issue, err := s.queries.GetIssue(ctx, pgtype.UUID{Bytes: issueID, Valid: true})
 	if err != nil {
 		return fmt.Errorf("cascade spawner: load issue: %w", err)
 	}
-	if _, err := s.taskSvc.EnqueueTaskForIssue(ctx, issue); err != nil {
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("cascade spawner: begin tx: %w", err)
+	}
+	defer func() {
+		// Safe to call after Commit — pgx rolls back only when the tx
+		// is still open.
+		_ = tx.Rollback(ctx)
+	}()
+
+	qtx := s.queries.WithTx(tx)
+	comment, err := qtx.CreateComment(ctx, db.CreateCommentParams{
+		IssueID:     issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+		AuthorType:  "system",
+		// AuthorID stays Valid=false → NULL in the row. Allowed by
+		// migration 078 (author_id is now nullable); the notification
+		// + subscriber listeners skip type='system' so the NULL is
+		// never dereferenced downstream.
+		AuthorID: pgtype.UUID{},
+		Content:  formatCascadeWakeMessage(tc),
+		Type:     "system",
+		ParentID: pgtype.UUID{},
+	})
+	if err != nil {
+		return fmt.Errorf("cascade spawner: create synth comment: %w", err)
+	}
+
+	task, err := s.taskSvc.EnqueueTaskForIssueInTx(ctx, qtx, issue, comment.ID)
+	if err != nil {
 		// Translate deterministic enqueue gates into the cascade
 		// permanent-skip sentinel so the worker stops retrying. The
-		// operator fix (assign agent, unarchive, wire runtime) will
-		// be picked up by the NEXT webhook delivery, not by replaying
-		// this row.
+		// tx rolls back via this returned error → no orphan synth
+		// comment in the thread. The operator fix (assign agent,
+		// unarchive, wire runtime) will be picked up by the NEXT
+		// webhook delivery, not by replaying this row.
 		if errors.Is(err, service.ErrIssueHasNoAssignee) ||
 			errors.Is(err, service.ErrAssigneeAgentArchived) ||
 			errors.Is(err, service.ErrAssigneeAgentNoRuntime) {
@@ -119,7 +172,97 @@ func (s *taskServiceSpawner) Spawn(ctx context.Context, issueID uuid.UUID, _ cas
 		}
 		return fmt.Errorf("cascade spawner: enqueue: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("cascade spawner: commit tx: %w", err)
+	}
+
+	// Post-commit: announce the task so daemon/UI observers wake up,
+	// and publish the synth comment so realtime issue-thread bubbles
+	// render. notification_listeners + subscriber_listeners skip
+	// type="system" so this publish does NOT fan out a `new_comment`
+	// notification to every issue subscriber.
+	s.taskSvc.AnnounceTaskQueued(ctx, task)
+	s.publishSynthCommentCreated(issue, comment)
+
 	return nil
+}
+
+func (s *taskServiceSpawner) publishSynthCommentCreated(issue db.Issue, comment db.Comment) {
+	if s.bus == nil {
+		return
+	}
+	s.bus.Publish(events.Event{
+		Type:        protocol.EventCommentCreated,
+		WorkspaceID: uuidString(issue.WorkspaceID),
+		ActorType:   "system",
+		ActorID:     "",
+		Payload: map[string]any{
+			"comment": map[string]any{
+				"id":          uuidString(comment.ID),
+				"issue_id":    uuidString(comment.IssueID),
+				"author_type": comment.AuthorType,
+				"author_id":   uuidStringNullable(comment.AuthorID),
+				"content":     comment.Content,
+				"type":        comment.Type,
+				"parent_id":   uuidStringNullable(comment.ParentID),
+				"created_at":  comment.CreatedAt.Time.Format("2006-01-02T15:04:05Z"),
+			},
+			"issue_title":  issue.Title,
+			"issue_status": issue.Status,
+		},
+	})
+}
+
+func uuidString(u pgtype.UUID) string {
+	if !u.Valid {
+		return ""
+	}
+	return uuid.UUID(u.Bytes).String()
+}
+
+func uuidStringNullable(u pgtype.UUID) any {
+	if !u.Valid {
+		return nil
+	}
+	return uuid.UUID(u.Bytes).String()
+}
+
+// formatCascadeWakeMessage renders the synth-comment body. Format is
+// pinned for test assertions: the agent must see event_type, the PR
+// number, the short head_sha, and an actionable CLI hint. The agent
+// reads this literally — vague wording = vague behavior, which is the
+// exact regression PUL-168 closes. If this format changes, update
+// cascade_wiring_test.go too.
+func formatCascadeWakeMessage(tc cascade.TriggerContext) string {
+	shortSHA := tc.HeadSHA
+	if len(shortSHA) > 8 {
+		shortSHA = shortSHA[:8]
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "🤖 cascade wake-up: event_type=%s", tc.EventType)
+	if tc.PRNumber > 0 {
+		fmt.Fprintf(&b, ", PR #%d", tc.PRNumber)
+	}
+	if shortSHA != "" {
+		fmt.Fprintf(&b, ", head_sha=%s", shortSHA)
+	}
+	b.WriteString("\n\n")
+	switch tc.EventType {
+	case "ci_failure":
+		if tc.PRNumber > 0 {
+			fmt.Fprintf(&b, "Investigate via `gh pr checks %d` and `gh run list --branch <branch> --limit 5`. ", tc.PRNumber)
+		} else {
+			b.WriteString("Investigate via `gh pr checks <pr>` and `gh run list --branch <branch> --limit 5`. ")
+		}
+		b.WriteString("Do NOT poll the issue thread expecting new comments — CI is the reason you were woken, not a new human reply.\n")
+	default:
+		fmt.Fprintf(&b, "Generic cascade wake-up; inspect the event payload for `%s` to decide what changed.\n", tc.EventType)
+	}
+	if tc.PRURL != "" {
+		fmt.Fprintf(&b, "\nPR: %s\n", tc.PRURL)
+	}
+	return b.String()
 }
 
 func (s *taskServiceSpawner) HasActiveRun(ctx context.Context, issueID uuid.UUID) (bool, error) {
