@@ -43,6 +43,26 @@ export type InboxItemType =
   | "quick_create_done"
   | "quick_create_failed";
 
+// PUL-180 ownership signal — server-derived from agent_task_queue,
+// issue.status, and the most recent comment / status_history rows.
+// Null when the chip is hidden (phase=done/cancelled, or agent
+// recipient). See server/internal/handler/inbox.go::deriveOwnership.
+export type OwnershipSlug = "me" | "agent" | "waiting";
+
+export interface OwnershipMeta {
+  // ISO-8601. Source varies by ownership: me → max(status_history,
+  // user/agent comment); agent → started_at OR dispatched_at;
+  // waiting → issue.updated_at. Null when none of the underlying
+  // timestamps exist (brand-new issue / freshly-queued task).
+  since: string | null;
+  // Only set for ownership === "agent" — the agent.name surfaced in
+  // the tooltip.
+  agent_name: string | null;
+  // Only set for ownership === "waiting" — controls which localized
+  // tooltip ("waiting on review" vs "waiting on approval") is shown.
+  reason: "review" | "approval" | null;
+}
+
 export interface InboxItem {
   id: string;
   workspace_id: string;
@@ -65,4 +85,10 @@ export interface InboxItem {
   // for tickets that have never had a skill applied.
   phase: PhaseSlug;
   latest_skill: SkillState | null;
+  // PUL-180 ownership chip (third Inbox slot). Always paired:
+  // ownership and ownership_meta are both null (chip hidden) or both
+  // non-null (chip rendered). Server enforces this — clients can
+  // treat them as a single optional pair.
+  ownership: OwnershipSlug | null;
+  ownership_meta: OwnershipMeta | null;
 }

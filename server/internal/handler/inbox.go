@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -37,6 +38,183 @@ type InboxItemResponse struct {
 	// never had a skill applied.
 	Phase       string              `json:"phase"`
 	LatestSkill *SkillStateResponse `json:"latest_skill"`
+
+	// PUL-180 ownership chip — the third Inbox slot answers "who's
+	// holding the ball right now". Derived server-side from
+	// agent_task_queue, issue.status, and the most recent comment +
+	// status_history rows; see deriveOwnership.
+	//
+	// Ownership is null when the chip is hidden — phase=done /
+	// phase=cancelled (closed ticket, nothing to act on) and when the
+	// inbox row targets an agent recipient (agent-to-agent inbox; the
+	// chip is a human-affordance only). On a live ticket for a
+	// member recipient ownership is always one of "me" / "agent" /
+	// "waiting".
+	//
+	// OwnershipMeta is paired with Ownership and carries the
+	// tooltip-source signals (since-timestamp, optional agent name,
+	// optional waiting-reason). It is null whenever Ownership is null.
+	// JSON tags use explicit-null (no omitempty) so old clients see
+	// `ownership: null` rather than a missing key (T4 contract).
+	Ownership     *string                `json:"ownership"`
+	OwnershipMeta *OwnershipMetaResponse `json:"ownership_meta"`
+}
+
+// OwnershipMetaResponse carries the tooltip signals for the Inbox
+// ownership chip. All three fields are optional with explicit-null
+// JSON encoding so the TypeScript view receives a consistent shape:
+//   - Since      — ISO-8601 timestamp the chip's "N мин назад" tooltip
+//                  suffix counts from. Source varies by ownership:
+//                    me      → max(last status_history, last comment)
+//                    agent   → started_at OR dispatched_at fallback
+//                    waiting → issue.updated_at
+//                  Nullable when none of the underlying timestamps
+//                  exist (brand-new issue, no agent_task_queue rows).
+//   - AgentName  — set only for ownership="agent" so the tooltip can
+//                  read "agent-1 работает, 2 мин назад". Comes from
+//                  agent.name (NOT NULL in schema) via the
+//                  active_tasks CTE JOIN.
+//   - Reason     — set only for ownership="waiting": "review" when
+//                  phase=review (status=waiting), "approval" when
+//                  phase=blocked. The frontend localizes via
+//                  common.ownership.tooltip.waiting_{review,approval}.
+type OwnershipMetaResponse struct {
+	Since     *string `json:"since"`
+	AgentName *string `json:"agent_name"`
+	Reason    *string `json:"reason"`
+}
+
+// activeTaskRow is the value-typed projection of the active_tasks
+// CTE row that deriveOwnership consumes. Defined separately from
+// db.ListInboxItemsRow so the pure function stays testable without
+// dragging in pgtype.* shells.
+type activeTaskRow struct {
+	AgentName    string
+	DispatchedAt *time.Time
+	StartedAt    *time.Time
+}
+
+// lastActivity bundles the two MAX(created_at) signals from the
+// last_status + last_comment CTEs into one carrier so deriveOwnership
+// stays single-purpose for the me-since calculation.
+type lastActivity struct {
+	StatusAt  *time.Time
+	CommentAt *time.Time
+}
+
+// deriveOwnership computes the Inbox ownership chip value + meta from
+// pure inputs. It is the only place in the codebase that encodes the
+// three precedence rules:
+//
+//  1. recipient is an agent → chip hidden (agent-to-agent inbox; chip
+//     is a human-affordance only). Returns "" / nil so the JSON
+//     marshals as `ownership: null`.
+//  2. phase is closed (done / cancelled) → chip hidden, same as (1).
+//  3. an active agent_task_queue row exists for the issue → "agent"
+//     wins over status=waiting/blocked, per /office-hours Q1: a
+//     ticket that is "waiting on review" but happens to have a
+//     re-run agent task in flight is more accurately characterized
+//     as "agent working" right now.
+//  4. otherwise the phase determines waiting/approval semantics
+//     (PhaseReview → "waiting"/reason="review";
+//      PhaseBlocked → "waiting"/reason="approval"); everything else
+//     falls through to the "me" default.
+//
+// Signature note (per /plan-eng-review A1): we only take `phase`, not
+// raw issueStatus — derivePhaseFromStatus is the single source of
+// truth that already collapses status → phase upstream. Passing both
+// would invite drift.
+func deriveOwnership(
+	recipientType string,
+	phase string,
+	activeTask *activeTaskRow,
+	last lastActivity,
+	issueUpdatedAt *time.Time,
+) (string, *OwnershipMetaResponse) {
+	if recipientType == "agent" {
+		return "", nil
+	}
+	if phase == "done" || phase == "cancelled" {
+		return "", nil
+	}
+	if activeTask != nil {
+		since := pickTaskTime(activeTask)
+		return "agent", &OwnershipMetaResponse{
+			AgentName: stringPtrIfNonEmpty(activeTask.AgentName),
+			Since:     timePtrToISO(since),
+		}
+	}
+	switch phase {
+	case "review":
+		return "waiting", &OwnershipMetaResponse{
+			Reason: stringPtr("review"),
+			Since:  timePtrToISO(issueUpdatedAt),
+		}
+	case "blocked":
+		return "waiting", &OwnershipMetaResponse{
+			Reason: stringPtr("approval"),
+			Since:  timePtrToISO(issueUpdatedAt),
+		}
+	}
+	return "me", &OwnershipMetaResponse{
+		Since: timePtrToISO(pickMeTime(last)),
+	}
+}
+
+// pickTaskTime returns the running-task timestamp to surface in the
+// tooltip — prefer started_at (the moment a worker actually picked up
+// the row), fall back to dispatched_at (queued/dispatched window
+// before a worker grabs it). Both may be nil for a freshly-queued
+// row, in which case the meta.since stays nil and the tooltip omits
+// the "N мин назад" suffix.
+func pickTaskTime(t *activeTaskRow) *time.Time {
+	if t.StartedAt != nil {
+		return t.StartedAt
+	}
+	return t.DispatchedAt
+}
+
+// pickMeTime picks the more-recent of the two "ход за мной" signals.
+// Either side may be nil for very fresh issues (no comments yet, no
+// status transitions yet) — the tooltip degrades to no suffix.
+func pickMeTime(la lastActivity) *time.Time {
+	switch {
+	case la.StatusAt != nil && la.CommentAt != nil:
+		if la.StatusAt.After(*la.CommentAt) {
+			return la.StatusAt
+		}
+		return la.CommentAt
+	case la.StatusAt != nil:
+		return la.StatusAt
+	case la.CommentAt != nil:
+		return la.CommentAt
+	}
+	return nil
+}
+
+func stringPtr(s string) *string { return &s }
+
+func stringPtrIfNonEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func timePtrToISO(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.Format(time.RFC3339)
+	return &s
+}
+
+func pgTimestampToPtr(ts pgtype.Timestamptz) *time.Time {
+	if !ts.Valid {
+		return nil
+	}
+	t := ts.Time
+	return &t
 }
 
 // derivePhaseFromStatus maps issue.status to the coarser
@@ -107,6 +285,7 @@ func inboxRowToResponse(r db.ListInboxItemsRow) InboxItemResponse {
 	if r.IssueStatus.Valid {
 		statusForPhase = r.IssueStatus.String
 	}
+	phase := derivePhaseFromStatus(statusForPhase)
 
 	var latest *SkillStateResponse
 	if r.LatestSkillSlug.Valid {
@@ -119,6 +298,32 @@ func inboxRowToResponse(r db.ListInboxItemsRow) InboxItemResponse {
 		}
 		latest = &ls
 	}
+
+	// PUL-180: ownership chip. The active_tasks CTE only emits a row
+	// when a queued/dispatched/running task exists for the issue, so
+	// ActiveTaskAgentID.Valid is the membership signal. We materialize
+	// the projection only when present — deriveOwnership treats nil
+	// active task as "no agent currently holds the ball" and falls
+	// through to the phase/me path.
+	var activeTask *activeTaskRow
+	if r.ActiveTaskAgentID.Valid {
+		activeTask = &activeTaskRow{
+			AgentName:    r.ActiveTaskAgentName.String,
+			DispatchedAt: pgTimestampToPtr(r.ActiveTaskDispatchedAt),
+			StartedAt:    pgTimestampToPtr(r.ActiveTaskStartedAt),
+		}
+	}
+	last := lastActivity{
+		StatusAt:  pgTimestampToPtr(r.LastStatusAt),
+		CommentAt: pgTimestampToPtr(r.LastCommentAt),
+	}
+	ownership, ownershipMeta := deriveOwnership(
+		r.RecipientType,
+		phase,
+		activeTask,
+		last,
+		pgTimestampToPtr(r.IssueUpdatedAt),
+	)
 
 	return InboxItemResponse{
 		ID:            uuidToString(r.ID),
@@ -137,9 +342,24 @@ func inboxRowToResponse(r db.ListInboxItemsRow) InboxItemResponse {
 		ActorType:     textToPtr(r.ActorType),
 		ActorID:       uuidToPtr(r.ActorID),
 		Details:       json.RawMessage(r.Details),
-		Phase:         derivePhaseFromStatus(statusForPhase),
+		Phase:         phase,
 		LatestSkill:   latest,
+		Ownership:     ownershipPtrOrNil(ownership),
+		OwnershipMeta: ownershipMeta,
 	}
+}
+
+// ownershipPtrOrNil maps the deriveOwnership empty-string sentinel
+// (used to signal "chip hidden") onto a JSON null so the wire shape
+// stays `ownership: null` rather than `ownership: ""`. The non-empty
+// branch wraps the slug in a pointer so the field can be omitted-via-
+// nil from per-row construction sites that don't compute ownership
+// (inboxToResponse, used for single-row event publishes).
+func ownershipPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (h *Handler) enrichInboxResponse(ctx context.Context, resp InboxItemResponse, issueID pgtype.UUID) InboxItemResponse {

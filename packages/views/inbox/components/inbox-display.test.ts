@@ -26,6 +26,8 @@ function item(overrides: Partial<InboxItem>): InboxItem {
     details: null,
     phase: "backlog",
     latest_skill: null,
+    ownership: null,
+    ownership_meta: null,
     ...overrides,
   };
 }

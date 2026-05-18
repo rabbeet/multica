@@ -8,6 +8,7 @@ import { InboxDetailLabel } from "./inbox-detail-label";
 import { getInboxDisplayTitle } from "./inbox-display";
 import { PhaseChip } from "./phase-chip";
 import { LastSkillChip } from "../../common/components/last-skill-chip";
+import { OwnershipChip } from "./ownership-chip";
 import { useT } from "../../i18n";
 import { useTimeAgo } from "../../common/hooks/use-time-ago";
 
@@ -60,9 +61,17 @@ export function InboxListItem({
           <div className="flex shrink-0 items-center gap-1">
             {/* PUL-177 phase + last-skill chips. PhaseChip is always
                 rendered (default backlog); LastSkillChip hides itself
-                when the issue has no skill_state history. */}
+                when the issue has no skill_state history. PUL-180
+                OwnershipChip is the third slot and hides itself for
+                closed phases (done/cancelled) or agent recipients —
+                that null pair comes straight from the server, so the
+                client does not re-derive. */}
             <PhaseChip phase={item.phase} />
             <LastSkillChip skill={item.latest_skill} />
+            <OwnershipChip
+              ownership={item.ownership}
+              meta={item.ownership_meta}
+            />
             <span
               role="button"
               tabIndex={-1}

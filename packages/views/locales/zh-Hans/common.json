@@ -24,5 +24,14 @@
   "skill_chip": {
     "in_progress": "/{{skill}} 进行中 — 开始于 {{time}}",
     "done": "/{{skill}} 已完成 — {{time}}"
+  },
+  "ownership": {
+    "tooltip": {
+      "me": "等你回应{{since}}",
+      "agent_unknown": "代理",
+      "agent_working": "{{name}} 处理中{{since}}",
+      "waiting_review": "等待审查{{since}}",
+      "waiting_approval": "等待批准{{since}}"
+    }
   }
 }

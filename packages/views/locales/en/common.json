@@ -24,5 +24,14 @@
   "skill_chip": {
     "in_progress": "/{{skill}} in progress — started {{time}}",
     "done": "/{{skill}} done — {{time}}"
+  },
+  "ownership": {
+    "tooltip": {
+      "me": "Your move{{since}}",
+      "agent_unknown": "Agent",
+      "agent_working": "{{name}} working{{since}}",
+      "waiting_review": "Awaiting review{{since}}",
+      "waiting_approval": "Awaiting approval{{since}}"
+    }
   }
 }
