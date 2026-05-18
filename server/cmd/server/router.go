@@ -202,6 +202,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			"source_count", router.SourceCount(),
 		)
 	}
+	// Friendly nudge for operators who deployed PUL-166 PR5 but
+	// forgot to remove the now-orphan webhook-secret env vars from
+	// the host .env / 1Password. Cost is one slog.Warn per restart
+	// while the vars exist; goes silent the moment they're removed.
+	if os.Getenv("MULTICA_GITHUB_WEBHOOK_SECRET_CURRENT") != "" ||
+		os.Getenv("MULTICA_GITHUB_WEBHOOK_SECRET_PREVIOUS") != "" {
+		slog.Warn("legacy webhook secret env vars still set — safe to remove",
+			"vars", "MULTICA_GITHUB_WEBHOOK_SECRET_{CURRENT,PREVIOUS}",
+			"reason", "PUL-166 PR5 removed the inbound GitHub webhook adapter; these are no longer read")
+	}
 
 	// Cascade background goroutines (worker + reconciliation cron).
 	// No-op when the cascade webhook feature flag is off OR when
