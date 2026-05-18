@@ -28,7 +28,6 @@ import (
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/webhooks"
-	githubsource "github.com/multica-ai/multica/server/internal/webhooks/github"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -185,23 +184,22 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// dev keeps working without exposing the metrics on a public listener.
 	r.Get("/health/realtime", realtimeMetricsHandler(os.Getenv("REALTIME_METRICS_TOKEN")))
 
-	// Cascade webhook ingress (PUL-102). Disabled by default; enabled
-	// per MULTICA_CASCADE_WEBHOOK_ENABLED env var. When off, the
-	// route literally does not exist on the parent router — vendors
-	// hitting /webhooks/{source} receive a 404 indistinguishable
-	// from a typo. PR3 wires the cascade.Store (persistence to
-	// cascade_retrigger) and the real GitHub source when its secret
-	// env vars are set; without those, the GitHub stub stays in
-	// place.
+	// Generic webhook ingress (PUL-102). Gated by
+	// MULTICA_CASCADE_WEBHOOK_ENABLED env var. When off, the route
+	// does not exist on the parent router — vendors hitting
+	// /webhooks/{source} receive a 404 indistinguishable from a typo.
+	//
+	// PUL-166 PR5 removed the GitHub source from this router; the
+	// GitHub ingress moved to outbound polling
+	// (internal/githubpoll, wired below in runGithubPoller). The
+	// generic router stays mountable for the placeholder
+	// Linear / Slack / GitLab sources — until those grow real
+	// adapters they all return 204 on every payload.
 	cascadeStore := cascade.NewStore(pool)
-	cascadeOpts := webhooks.MountOptions{
-		Store:        cascadeStore,
-		GitHubSource: githubsource.FromEnv(os.Getenv),
-	}
+	cascadeOpts := webhooks.MountOptions{Store: cascadeStore}
 	if router := webhooks.MountFromEnv(r, cascadeOpts, nil); router != nil {
 		slog.Info("webhooks subsystem active",
 			"source_count", router.SourceCount(),
-			"github_real_adapter", cascadeOpts.GitHubSource != nil,
 		)
 	}
 

@@ -37,13 +37,25 @@ func TestMountFromEnv_EnabledRegistersStubs(t *testing.T) {
 	if router == nil {
 		t.Fatalf("MountFromEnv with flag=true returned nil router")
 	}
-	if got := router.SourceCount(); got != 4 {
-		t.Fatalf("source count = %d, want 4 (github, linear, slack, gitlab)", got)
+	// PUL-166 PR5: github source removed from this router. Source
+	// count is the three placeholder vendor stubs only; GitHub
+	// ingress is now outbound polling (internal/githubpoll).
+	if got := router.SourceCount(); got != 3 {
+		t.Fatalf("source count = %d, want 3 (linear, slack, gitlab)", got)
 	}
 
-	// Each stub should be reachable and respond 204 — they all
-	// return ErrUnsupportedEvent in PR2.
-	for _, name := range []string{"github", "linear", "slack", "gitlab"} {
+	// /webhooks/github should 404 — no adapter registered.
+	t.Run("github_404", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader("{}"))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("/webhooks/github should 404 after PR5 cleanup, got %d", rec.Code)
+		}
+	})
+
+	// Each remaining stub should be reachable and respond 204.
+	for _, name := range []string{"linear", "slack", "gitlab"} {
 		t.Run(name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/webhooks/"+name, strings.NewReader("{}"))
 			rec := httptest.NewRecorder()

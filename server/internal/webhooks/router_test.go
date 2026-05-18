@@ -405,14 +405,14 @@ func TestServe_PersistanceFailure_Returns500(t *testing.T) {
 
 func TestRegister_DuplicatePanics(t *testing.T) {
 	r := NewRouter(nil)
-	r.Register(GitHubStub())
+	r.Register(LinearStub())
 
 	defer func() {
 		if recover() == nil {
 			t.Fatal("expected panic on duplicate Register")
 		}
 	}()
-	r.Register(GitHubStub())
+	r.Register(LinearStub())
 }
 
 func TestRegister_EmptyNamePanics(t *testing.T) {
