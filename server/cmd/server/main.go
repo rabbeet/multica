@@ -332,6 +332,11 @@ func main() {
 	// PUL-164 child-progress fan-out worker. Shares autopilotCtx so it shuts
 	// down with the rest of the schedulers on server stop.
 	go runChildProgressScheduler(autopilotCtx, queries, bus, commentSvc)
+	// PUL-182 TTL cleanup for stale issue_skill_state in_progress rows.
+	// Default 24h; ISSUE_SKILL_STATE_STALE_TTL overrides (e.g. "1h" on
+	// staging). Shares autopilotCtx with the rest of the schedulers.
+	skillStateCleanupTTL := envDuration("ISSUE_SKILL_STATE_STALE_TTL", 24*time.Hour)
+	go runSkillStateCleanupScheduler(autopilotCtx, queries, skillStateCleanupTTL)
 	go runDBStatsLogger(sweepCtx, pool)
 
 	// PUL-166 github outbound poller. Replaces the inbound webhook
