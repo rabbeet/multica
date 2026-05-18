@@ -15,8 +15,10 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/logger"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -1476,6 +1478,52 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// Determine actor identity: agent (via X-Agent-ID header) or member.
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+
+	// PUL-164: when status changes via HTTP PATCH, write the audit row to
+	// issue_status_history AND enqueue a child_progress fan-out if the issue
+	// has a parent. Best-effort: failures here are logged but never break
+	// the user-visible response (the status flip is already committed).
+	//
+	// This closes a pre-existing audit gap: prior to PUL-164, HTTP-driven
+	// status mutations bypassed issue_status_history entirely (only the
+	// comment-driven flips via service.CommentService wrote history).
+	if statusChanged {
+		actorUUID := pgtype.UUID{}
+		if parsed, parseErr := util.ParseUUID(actorID); parseErr == nil {
+			actorUUID = parsed
+		}
+		// Generate a unique ref_id per HTTP PATCH so the UNIQUE(source,
+		// ref_id) idempotency contract on issue_status_history accepts
+		// repeated PATCHes to the same status (each PATCH is a distinct
+		// audit event).
+		refID := uuid.NewString()
+		history, histErr := h.Queries.InsertStatusHistory(r.Context(), db.InsertStatusHistoryParams{
+			IssueID:    issue.ID,
+			FromStatus: pgtype.Text{String: prevIssue.Status, Valid: true},
+			ToStatus:   issue.Status,
+			Source:     service.SourceManual,
+			ActorID:    actorUUID,
+			ActorType:  pgtype.Text{String: actorType, Valid: actorType != ""},
+			RefID:      pgtype.Text{String: refID, Valid: true},
+		})
+		if histErr != nil {
+			slog.Warn("update issue: status history insert failed",
+				append(logger.RequestAttrs(r), "error", histErr, "issue_id", id)...)
+		} else if issue.ParentIssueID.Valid {
+			if _, _, fanErr := service.EnqueueChildProgressFanout(r.Context(), h.Queries, service.EnqueueChildProgressParams{
+				WorkspaceID:     issue.WorkspaceID,
+				SourceHistoryID: history.ID,
+				ChildIssueID:    issue.ID,
+				PrevStatus:      prevIssue.Status,
+				NewStatus:       issue.Status,
+				ActorID:         actorUUID,
+				ActorType:       pgtype.Text{String: actorType, Valid: actorType != ""},
+			}); fanErr != nil {
+				slog.Warn("update issue: child_progress fanout enqueue failed",
+					append(logger.RequestAttrs(r), "error", fanErr, "issue_id", id)...)
+			}
+		}
+	}
 
 	h.publish(protocol.EventIssueUpdated, workspaceID, actorType, actorID, map[string]any{
 		"issue":               resp,

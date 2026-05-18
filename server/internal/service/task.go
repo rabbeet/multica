@@ -1084,6 +1084,38 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 								"issue_id", issueKey,
 								"error", updateErr,
 							)
+						} else {
+							// PUL-164: write audit row + enqueue child_progress
+							// fan-out so the parent (if any) learns the work
+							// got reset. Best-effort: failures here only
+							// degrade observability, never break recovery.
+							refID := "task_fail_" + util.UUIDToString(t.ID)
+							history, histErr := s.Queries.InsertStatusHistory(ctx, db.InsertStatusHistoryParams{
+								IssueID:    t.IssueID,
+								FromStatus: pgtype.Text{String: "in_progress", Valid: true},
+								ToStatus:   "todo",
+								Source:     SourceManual,
+								ActorID:    pgtype.UUID{},
+								ActorType:  pgtype.Text{String: "system", Valid: true},
+								RefID:      pgtype.Text{String: refID, Valid: true},
+							})
+							if histErr != nil {
+								slog.Warn("handle failed tasks: status history insert failed",
+									"issue_id", issueKey, "error", histErr)
+							} else if issue.ParentIssueID.Valid {
+								if _, _, fanErr := EnqueueChildProgressFanout(ctx, s.Queries, EnqueueChildProgressParams{
+									WorkspaceID:     issue.WorkspaceID,
+									SourceHistoryID: history.ID,
+									ChildIssueID:    t.IssueID,
+									PrevStatus:      "in_progress",
+									NewStatus:       "todo",
+									ActorID:         pgtype.UUID{},
+									ActorType:       pgtype.Text{String: "system", Valid: true},
+								}); fanErr != nil {
+									slog.Warn("handle failed tasks: child_progress fanout enqueue failed",
+										"issue_id", issueKey, "error", fanErr)
+								}
+							}
 						}
 					}
 				}
