@@ -289,10 +289,27 @@ func (q *Queries) GetInboxItemInWorkspace(ctx context.Context, arg GetInboxItemI
 }
 
 const listInboxItems = `-- name: ListInboxItems :many
+WITH latest_skills AS (
+    SELECT DISTINCT ON (issue_id)
+        issue_id,
+        skill_slug,
+        status,
+        started_at,
+        completed_at,
+        updated_at
+    FROM issue_skill_state
+    ORDER BY issue_id, updated_at DESC
+)
 SELECT i.id, i.workspace_id, i.recipient_type, i.recipient_id, i.type, i.severity, i.issue_id, i.title, i.body, i.read, i.archived, i.created_at, i.actor_type, i.actor_id, i.details,
-       iss.status as issue_status
+       iss.status as issue_status,
+       ls.skill_slug   AS latest_skill_slug,
+       ls.status       AS latest_skill_status,
+       ls.started_at   AS latest_skill_started_at,
+       ls.completed_at AS latest_skill_completed_at,
+       ls.updated_at   AS latest_skill_updated_at
 FROM inbox_item i
 LEFT JOIN issue iss ON iss.id = i.issue_id
+LEFT JOIN latest_skills ls ON ls.issue_id = i.issue_id
 WHERE i.workspace_id = $1 AND i.recipient_type = $2 AND i.recipient_id = $3 AND i.archived = false
 ORDER BY i.created_at DESC
 `
@@ -304,24 +321,40 @@ type ListInboxItemsParams struct {
 }
 
 type ListInboxItemsRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
-	RecipientType string             `json:"recipient_type"`
-	RecipientID   pgtype.UUID        `json:"recipient_id"`
-	Type          string             `json:"type"`
-	Severity      string             `json:"severity"`
-	IssueID       pgtype.UUID        `json:"issue_id"`
-	Title         string             `json:"title"`
-	Body          pgtype.Text        `json:"body"`
-	Read          bool               `json:"read"`
-	Archived      bool               `json:"archived"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	ActorType     pgtype.Text        `json:"actor_type"`
-	ActorID       pgtype.UUID        `json:"actor_id"`
-	Details       []byte             `json:"details"`
-	IssueStatus   pgtype.Text        `json:"issue_status"`
+	ID                     pgtype.UUID        `json:"id"`
+	WorkspaceID            pgtype.UUID        `json:"workspace_id"`
+	RecipientType          string             `json:"recipient_type"`
+	RecipientID            pgtype.UUID        `json:"recipient_id"`
+	Type                   string             `json:"type"`
+	Severity               string             `json:"severity"`
+	IssueID                pgtype.UUID        `json:"issue_id"`
+	Title                  string             `json:"title"`
+	Body                   pgtype.Text        `json:"body"`
+	Read                   bool               `json:"read"`
+	Archived               bool               `json:"archived"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	ActorType              pgtype.Text        `json:"actor_type"`
+	ActorID                pgtype.UUID        `json:"actor_id"`
+	Details                []byte             `json:"details"`
+	IssueStatus            pgtype.Text        `json:"issue_status"`
+	LatestSkillSlug        pgtype.Text        `json:"latest_skill_slug"`
+	LatestSkillStatus      pgtype.Text        `json:"latest_skill_status"`
+	LatestSkillStartedAt   pgtype.Timestamptz `json:"latest_skill_started_at"`
+	LatestSkillCompletedAt pgtype.Timestamptz `json:"latest_skill_completed_at"`
+	LatestSkillUpdatedAt   pgtype.Timestamptz `json:"latest_skill_updated_at"`
 }
 
+// PUL-177 augments this query with the latest applied skill per
+// issue, used by the Inbox phase + last-applied-skill chips in
+// InboxListItem.
+//
+// We use a CTE + LEFT JOIN rather than LATERAL or scalar subqueries
+// because sqlc's nullability inference treats LEFT JOIN columns as
+// nullable (good — issues with no skill history return NULL slug/
+// status) but treats LATERAL / scalar subquery columns as the
+// underlying NOT NULL column type, which then blows up Scan() on
+// legacy issues. DISTINCT ON (issue_id) ORDER BY updated_at DESC
+// is index-driven by idx_issue_skill_state_issue_updated.
 func (q *Queries) ListInboxItems(ctx context.Context, arg ListInboxItemsParams) ([]ListInboxItemsRow, error) {
 	rows, err := q.db.Query(ctx, listInboxItems, arg.WorkspaceID, arg.RecipientType, arg.RecipientID)
 	if err != nil {
@@ -348,6 +381,11 @@ func (q *Queries) ListInboxItems(ctx context.Context, arg ListInboxItemsParams) 
 			&i.ActorID,
 			&i.Details,
 			&i.IssueStatus,
+			&i.LatestSkillSlug,
+			&i.LatestSkillStatus,
+			&i.LatestSkillStartedAt,
+			&i.LatestSkillCompletedAt,
+			&i.LatestSkillUpdatedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -348,6 +348,17 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	groupedAtt := h.groupAttachments(r, []pgtype.UUID{comment.ID})
 	resp := commentToResponse(comment, nil, groupedAtt[uuidToString(comment.ID)])
 	slog.Info("comment created", append(logger.RequestAttrs(r), "comment_id", uuidToString(comment.ID), "issue_id", issueID)...)
+
+	// PUL-177 skill auto-detect: scan the comment for /<skill-name>
+	// tokens that match the workspace skill registry and upsert
+	// in_progress rows in issue_skill_state. Soft-fails on any
+	// registry-side error; the comment has already been written.
+	h.applyCommentSkillAutoDetect(r.Context(), &commentAutoDetectInput{
+		WorkspaceID: issue.WorkspaceID,
+		IssueID:     issue.ID,
+		Content:     comment.Content,
+	})
+
 	h.publish(protocol.EventCommentCreated, uuidToString(issue.WorkspaceID), authorType, authorID, map[string]any{
 		"comment":             resp,
 		"issue_title":         issue.Title,

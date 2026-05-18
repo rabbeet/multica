@@ -414,6 +414,36 @@ func (q *Queries) ListSkillsByWorkspace(ctx context.Context, workspaceID pgtype.
 	return items, nil
 }
 
+const listWorkspaceSkillNames = `-- name: ListWorkspaceSkillNames :many
+SELECT name FROM skill
+WHERE workspace_id = $1
+`
+
+// Names-only variant used by the comment auto-detect path in PUL-177
+// (server/internal/handler/comment.go::inferSkillStatesFromComment).
+// Called once per comment that contains at least one /<slug> token —
+// so it's on the comment-write hot path and we don't ship summary
+// fields the caller never reads.
+func (q *Queries) ListWorkspaceSkillNames(ctx context.Context, workspaceID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listWorkspaceSkillNames, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeAgentSkill = `-- name: RemoveAgentSkill :exec
 DELETE FROM agent_skill
 WHERE agent_id = $1 AND skill_id = $2
