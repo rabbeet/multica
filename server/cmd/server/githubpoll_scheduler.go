@@ -6,30 +6,34 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/multica-ai/multica/server/internal/cascade"
 	"github.com/multica-ai/multica/server/internal/githubpoll"
 	"github.com/multica-ai/multica/server/internal/webhooks/github"
 )
 
-// runGithubPoller boots the PUL-166 outbound poller. PR2 ships the
-// goroutine wiring under a default-off feature flag — the function
-// is invoked unconditionally from main.go, but exits silently when
+// runGithubPoller boots the PUL-166 outbound poller. The function is
+// invoked unconditionally from main.go, but exits silently when
 // MULTICA_GITHUB_POLL_ENABLED is not truthy, mirroring how the
 // cascade webhook subsystem is gated.
 //
-// The poller in PR2 runs with a LoggingSink (dry-run). PR3 replaces
-// the sink with a CascadeRetriggerSink that writes the same rows the
-// inbound webhook adapter writes today; main.go's call signature
-// does not change.
+// PR3 swap: replaces PR2's dry-run LoggingSink with a real
+// CascadeRetriggerSink that writes to the cascade_retrigger table.
+// Same table the inbound webhook adapter writes to — both channels
+// share idempotency through the UNIQUE event_id constraint, though
+// the production hard-cutover (PR4) keeps webhook OFF before poll
+// ON so they never race in steady state.
 //
-// pool may be nil during tests / DB-disabled runs. We tolerate that
-// by checking before constructing the cursor store — the poller
-// goroutine just doesn't spawn.
-func runGithubPoller(ctx context.Context, pool *pgxpool.Pool) {
+// pool may be nil during tests / DB-disabled runs. The poller does
+// not spawn in that case.
+//
+// metrics is shared with the Prometheus collector registered in
+// internal/metrics.NewRegistry — the same pointer flows into both,
+// so /metrics scrapes the live counters the hot path writes.
+func runGithubPoller(ctx context.Context, pool *pgxpool.Pool, metrics *githubpoll.Metrics) {
 	if !envBool("MULTICA_GITHUB_POLL_ENABLED", false) {
 		return
 	}
@@ -70,26 +74,23 @@ func runGithubPoller(ctx context.Context, pool *pgxpool.Pool) {
 	classifier := githubpoll.Classifier{Resolver: resolver}
 	cursors := githubpoll.NewCursorStore(pool)
 
-	// PR2: dry-run only. Logs every classified event; never writes
-	// to cascade_retrigger. PR3 swaps in the real sink.
-	sink := githubpoll.LoggingSink{}
+	// PR3 sink: writes to cascade_retrigger via the same store the
+	// webhook adapter uses. ON CONFLICT (event_id) DO NOTHING handles
+	// re-tick replays as silent no-ops.
+	sink := githubpoll.NewCascadeRetriggerSink(cascade.NewStore(pool), slog.Default(), metrics)
 
 	cfg := githubpoll.Config{
 		Repos:    repos,
 		Interval: interval,
 		Logger:   slog.Default(),
+		Metrics:  metrics,
 	}
 	poller := githubpoll.NewPoller(cfg, client, classifier, cursors, sink)
-
-	// Counter is observable via /health/realtime-style introspection
-	// in PR3 (added alongside the live writes). For PR2 it lives
-	// only in-process and rolls up to the structured log fields.
-	var panics atomic.Int64
 
 	go githubpoll.RunWithRecover(
 		ctx,
 		"github_poller",
-		&panics,
+		&metrics.PanicsTotal,
 		slog.Default(),
 		5*time.Second,
 		poller.Run,
@@ -97,7 +98,6 @@ func runGithubPoller(ctx context.Context, pool *pgxpool.Pool) {
 	slog.Info("githubpoll.started",
 		"repos", strings.Join(repos, ","),
 		"interval", interval,
-		"dry_run", true,
 	)
 }
 

@@ -45,6 +45,13 @@ func isValidRepoName(repo string) bool {
 // that writes rows to the same table the webhook adapter writes to.
 // The Sink interface keeps poller.go agnostic to persistence, which
 // is the boundary the staged rollout depends on.
+//
+// Metric ownership convention: the *caller* (poller.tickOne) owns
+// metrics — it increments sink_errors_total on any non-nil error
+// from Submit. Implementations should NOT increment metrics
+// themselves to avoid double-counting under the current wiring.
+// A future replay tool that calls Submit directly will need its
+// own metric path.
 type Sink interface {
 	Submit(ctx context.Context, repo string, event webhooks.TriggerEvent) error
 }
@@ -103,6 +110,11 @@ type Config struct {
 	// Logger is used for structured per-event diagnostics. nil
 	// falls back to slog.Default().
 	Logger *slog.Logger
+
+	// Metrics is incremented on every tick. nil-safe — passing
+	// nil disables metrics collection without branching the hot
+	// path; the Metrics methods all guard on a nil receiver.
+	Metrics *Metrics
 
 	// Now is overridable for tests so cursor.LastPolledAt is
 	// deterministic. nil falls back to time.Now.
@@ -208,13 +220,28 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 	}
 
 	result, err := p.client.FetchEvents(ctx, repo, cursor.ETag, cursor.LastEventID)
+	// Record observed rate-limit on every code path that produced a
+	// response. 200, 304, and 403/rate-limit all carry the header;
+	// the client propagates info even on the ErrRateLimited path so
+	// the gauge actually drops to 0 (and triggers the alert) when
+	// the budget is exhausted. We use RateLimit > 0 as the gate:
+	// RateLimit is 5000 for authenticated callers, never zero in
+	// a healthy response — so a zero-limit signals "no response
+	// from GitHub at all" (DNS, transport failure), in which case
+	// we leave the gauge alone and let the cursor_age alert fire.
+	if result.RateLimit > 0 {
+		p.cfg.Metrics.SetRateLimitRemaining(repo, result.RateRemaining)
+	}
 	switch {
 	case errors.Is(err, ErrNotModified):
 		// Steady state. Bump last_polled_at; leave cursor.LastEventID
 		// and cursor.ETag intact (Save is a no-op write if the row
 		// already has the same etag, but we Save anyway to advance
 		// last_polled_at for the staleness alert).
-		cursor.LastPolledAt = p.now()
+		now := p.now()
+		cursor.LastPolledAt = now
+		p.cfg.Metrics.IncCall(repo, 304)
+		p.cfg.Metrics.MarkTickComplete(repo, now.Unix())
 		if err := p.cursors.Save(ctx, cursor); err != nil {
 			logger.Error("githubpoll.poller.cursor_save_failed_304", "error", err)
 		}
@@ -224,11 +251,13 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 		)
 		return
 	case errors.Is(err, ErrNoToken):
+		p.cfg.Metrics.IncCall(repo, 0)
 		logger.Error("githubpoll.poller.no_token")
 		return
 	case errors.As(err, new(ErrRateLimited)):
 		var rate ErrRateLimited
 		_ = errors.As(err, &rate)
+		p.cfg.Metrics.IncCall(repo, 403)
 		// Don't sleep here — the supervisor's backoff handles next-
 		// tick timing, and we don't want to block sibling repos
 		// behind a single 403. Log + return; next tick will retry.
@@ -237,9 +266,13 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 		)
 		return
 	case err != nil:
+		// Generic fetch failure — DNS, timeout, 5xx. status code
+		// not recoverable in a structured way; bucket as 0.
+		p.cfg.Metrics.IncCall(repo, 0)
 		logger.Warn("githubpoll.poller.fetch_failed", "error", err)
 		return
 	}
+	p.cfg.Metrics.IncCall(repo, 200)
 
 	// Classify each event in oldest-first order. The on-disk cursor
 	// is Saved exactly ONCE per successful tickOne — after the
@@ -261,14 +294,24 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 		switch {
 		case errors.Is(err, ErrSkip):
 			skipCount++
+			p.cfg.Metrics.IncEvent(repo, "skip")
 		case errors.Is(err, ErrSchemaMismatch):
 			schemaErrCount++
+			p.cfg.Metrics.IncEvent(repo, "schema_mismatch")
 			logger.Warn("githubpoll.poller.schema_mismatch",
 				"github_event_id", e.ID,
 				"event_type", e.Type,
 				"error", err,
 			)
 		case err != nil:
+			// Distinct from schema_mismatch: the classifier failed
+			// for a non-sentinel reason, most plausibly a resolver
+			// HTTP error (commit→PRs fallback) that swallowed
+			// upstream as ErrSkip but slipped through. Separate
+			// bucket so alert routing can distinguish "GitHub
+			// changed payload shape" from "transient network blip
+			// on a fallback API call".
+			p.cfg.Metrics.IncEvent(repo, "classify_error")
 			logger.Warn("githubpoll.poller.classify_failed",
 				"github_event_id", e.ID,
 				"event_type", e.Type,
@@ -276,6 +319,7 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 			)
 		case evt != nil:
 			if submitErr := p.sink.Submit(ctx, repo, *evt); submitErr != nil {
+				p.cfg.Metrics.IncSinkError(repo)
 				logger.Warn("githubpoll.poller.sink_failed",
 					"github_event_id", e.ID,
 					"error", submitErr,
@@ -285,6 +329,7 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 				return
 			}
 			classifiedCount++
+			p.cfg.Metrics.IncEvent(repo, evt.EventType)
 		}
 		// Advance cursor regardless of skip/classify: we don't
 		// need to re-see this event next tick.
@@ -296,7 +341,9 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 	if result.ETag != "" {
 		cursor.ETag = result.ETag
 	}
-	cursor.LastPolledAt = p.now()
+	now := p.now()
+	cursor.LastPolledAt = now
+	p.cfg.Metrics.MarkTickComplete(repo, now.Unix())
 	if err := p.cursors.Save(ctx, cursor); err != nil {
 		logger.Error("githubpoll.poller.cursor_save_failed", "error", err)
 	}

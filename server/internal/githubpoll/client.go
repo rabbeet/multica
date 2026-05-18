@@ -149,7 +149,12 @@ func (c *Client) FetchEvents(ctx context.Context, repo, etagPrev string, sinceID
 				}
 				return FetchResult{}, fmt.Errorf("unexpected 304 on page %d", page)
 			}
-			return FetchResult{}, err
+			// Propagate observed rate-info even on error paths so the
+			// poller's gauge update can see what GitHub last reported
+			// — critical for the 403/remaining=0 case where the
+			// gauge would otherwise stick at the previous 200's
+			// value and the rate-limit alert would stay silent.
+			return FetchResult{RateRemaining: info.remaining, RateLimit: info.limit}, err
 		}
 		// Stop sending If-None-Match after page 1.
 		etagPrev = ""
