@@ -8,15 +8,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/githubpoll"
 	"github.com/multica-ai/multica/server/internal/realtime"
 )
 
 type RegistryOptions struct {
-	Pool     *pgxpool.Pool
-	Realtime *realtime.Metrics
-	DaemonWS *daemonws.Metrics
-	Version  string
-	Commit   string
+	Pool       *pgxpool.Pool
+	Realtime   *realtime.Metrics
+	DaemonWS   *daemonws.Metrics
+	GithubPoll *githubpoll.Metrics
+	Version    string
+	Commit     string
 }
 
 type Registry struct {
@@ -47,6 +49,9 @@ func NewRegistry(opts RegistryOptions) *Registry {
 	}
 	if opts.DaemonWS != nil {
 		reg.MustRegister(NewDaemonWSCollector(opts.DaemonWS))
+	}
+	if opts.GithubPoll != nil {
+		reg.MustRegister(NewGithubPollCollector(opts.GithubPoll))
 	}
 
 	return &Registry{
