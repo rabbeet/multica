@@ -64,6 +64,8 @@ func TestStripMarkdownNonTextPreservesLength(t *testing.T) {
 		"see `inline` text",
 		"mixed > q and `inline` together",
 		"prose\n\n> q\n\n```\ncode\n```\n\nmore prose",
+		"line\r\n> quoted\r\nline",
+		"```\r\ncode\r\n```\r\nafter",
 	}
 	for _, in := range inputs {
 		out := stripMarkdownNonText(in)

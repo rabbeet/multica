@@ -72,6 +72,16 @@ func TestExtractSkillCandidates(t *testing.T) {
 		{"fenced code block with language tag",
 			"```bash\n/plan-eng-review\n```", nil},
 		{"unclosed fence treats rest as inside", "```\n/office-hours", nil},
+		// Independent-review catch: per CommonMark §4.5 a closing
+		// fence may be followed only by spaces/tabs. A mid-fence
+		// line like "``` info" is NOT a closer; the fence stays
+		// open and a later /skill must remain stripped.
+		{"fence false-closer with trailing info stays open",
+			"```\nsafe code\n``` info\n/office-hours\n```", nil},
+		{"fence closer with trailing spaces is a real closer",
+			"```\nsafe\n```   \n/office-hours", []string{"office-hours"}},
+		{"fence closer with extra fence chars also closes",
+			"```\nsafe\n``````\n/office-hours", []string{"office-hours"}},
 		{"prose adjacent to inline code span",
 			"run /office-hours, see `/qa` for details", []string{"office-hours"}},
 		{"inline code stripped on real line",

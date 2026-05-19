@@ -43,7 +43,7 @@ func stripMarkdownNonText(content string) string {
 		trimmed := strings.TrimLeft(line, " \t")
 
 		if inFence {
-			if strings.HasPrefix(trimmed, fenceMarker) {
+			if isFenceCloser(trimmed, fenceMarker) {
 				inFence = false
 				fenceMarker = ""
 			}
@@ -80,6 +80,29 @@ func stripMarkdownNonText(content string) string {
 // them between elements.
 func blankLine(line string) string {
 	return strings.Repeat(" ", len(line))
+}
+
+// isFenceCloser reports whether a left-trimmed line is a valid
+// CommonMark closing fence for a fence opened with `marker` (either
+// "```" or "~~~"). Per CommonMark §4.5, a closer is a run of the
+// same fence character (length ≥ opener) followed ONLY by spaces or
+// tabs. A trailing info string ("``` foo") is NOT a closer — the
+// fence stays open. Skipping this check is the bug PUL-181's
+// independent review caught: "``` info" mid-fence would otherwise
+// fool the stripper into ending the fence early and letting a later
+// /skill leak through to the regex.
+func isFenceCloser(trimmed, marker string) bool {
+	if !strings.HasPrefix(trimmed, marker) {
+		return false
+	}
+	rest := trimmed[len(marker):]
+	// Closing run may be longer than opener; consume any extra
+	// same-character fence runs.
+	for len(rest) > 0 && rest[0] == marker[0] {
+		rest = rest[1:]
+	}
+	// Whatever's left must be only spaces/tabs.
+	return strings.TrimRight(rest, " \t") == ""
 }
 
 // stripInlineCodeSpans replaces backtick-delimited code spans with
