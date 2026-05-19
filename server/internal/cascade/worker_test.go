@@ -825,6 +825,136 @@ func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix(t *testing.T) {
 	}
 }
 
+// TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix_Noop is the
+// PUL-202 sibling for the deploy_flip=noop; branch: when DecideDeployFlip
+// rejects (issue already in a terminal status), ApplyDeployFlip returns
+// (false, nil) and processOne emits a "deploy_flip=noop; " prefix. The
+// happy-path sibling (:765) pins flipped; this one pins noop.
+func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix_Noop(t *testing.T) {
+	pool := workerTestDBPool(t)
+	if pool == nil {
+		return
+	}
+	ws, cleanup := workerMakeWorkspaceAndUser(t, pool)
+	defer cleanup()
+	queries := db.New(pool)
+
+	// status='deployed' makes DecideDeployFlip return false → noop path.
+	issueID := insertIssueForDeployFlip(t, pool, ws, 20211, "deployed", "")
+	rowID := insertRetrigger(t, pool, issueID,
+		"https://github.com/o/r/pull/202", "sha-pul202-noop", "pr_merged")
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+	defer pool.Exec(context.Background(),
+		`DELETE FROM issue_status_history WHERE issue_id = $1`, issueID)
+
+	sp := &fakeSpawner{}
+	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 1 {
+		t.Fatalf("expected 1 spawn, got %d", sp.spawnCalls.Load())
+	}
+
+	var action string
+	var reason *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action, action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &reason); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if action != "spawn" {
+		t.Errorf("action = %q, want spawn", action)
+	}
+	got := ""
+	if reason != nil {
+		got = *reason
+	}
+	if !strings.HasPrefix(got, "deploy_flip=noop") {
+		t.Errorf("action_reason = %q, want to start with deploy_flip=noop", got)
+	}
+	if !strings.Contains(got, "spawned") {
+		t.Errorf("action_reason = %q, want to contain spawn outcome", got)
+	}
+}
+
+// TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix_Failed is the
+// PUL-202 sibling for the deploy_flip=failed: <err>; branch. Failure is
+// injected by passing a separate, pre-Closed pgxpool as the worker's
+// txPool: ApplyDeployFlip's first call is pool.Begin(ctx), which fails
+// on a closed pool — exercising the err != nil branch in processOne
+// without touching production code. The live `pool` is still used for
+// cascade_retrigger reads/writes, so the spawn fall-through path stays
+// observable. The exact pgx error string is implementation-defined and
+// must NOT be asserted; only the "deploy_flip=failed:" prefix is
+// contract.
+func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix_Failed(t *testing.T) {
+	pool := workerTestDBPool(t)
+	if pool == nil {
+		return
+	}
+	ws, cleanup := workerMakeWorkspaceAndUser(t, pool)
+	defer cleanup()
+	queries := db.New(pool)
+
+	// status='todo' would normally flip; the closed txPool forces
+	// ApplyDeployFlip to error before DecideDeployFlip even runs.
+	issueID := insertIssueForDeployFlip(t, pool, ws, 20212, "todo", "")
+	rowID := insertRetrigger(t, pool, issueID,
+		"https://github.com/o/r/pull/203", "sha-pul202-failed", "pr_merged")
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+	defer pool.Exec(context.Background(),
+		`DELETE FROM issue_status_history WHERE issue_id = $1`, issueID)
+
+	closedFlipPool := openAndClosePool(t)
+
+	sp := &fakeSpawner{}
+	w := NewWorker(pool, sp, nil, closedFlipPool, queries, nil)
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 1 {
+		t.Fatalf("expected 1 spawn (best-effort fall-through after flip failure), got %d", sp.spawnCalls.Load())
+	}
+
+	var action string
+	var reason *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action, action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &reason); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if action != "spawn" {
+		t.Errorf("action = %q, want spawn (flip failure must NOT block spawn pipeline)", action)
+	}
+	got := ""
+	if reason != nil {
+		got = *reason
+	}
+	if !strings.HasPrefix(got, "deploy_flip=failed:") {
+		t.Errorf("action_reason = %q, want to start with deploy_flip=failed:", got)
+	}
+	if !strings.Contains(got, "spawned") {
+		t.Errorf("action_reason = %q, want to contain spawn outcome", got)
+	}
+}
+
+// openAndClosePool returns a pgxpool that is open against the same DSN
+// as workerTestDBPool but has already been Closed. Used to inject a
+// deterministic pool.Begin error into ApplyDeployFlip for the
+// deploy_flip=failed test branch.
+func openAndClosePool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		url = "postgres://multica:multica@localhost:5432/multica?sslmode=disable"
+	}
+	p, err := pgxpool.New(context.Background(), url)
+	if err != nil {
+		t.Fatalf("open flip pool: %v", err)
+	}
+	p.Close()
+	return p
+}
+
 // TestWorker_NonPRMergedEventDoesNotFlip locks in the negative side:
 // only event_type='pr_merged' triggers the auto-flip. ci_failure,
 // pr_review_change, etc. continue to spawn-without-flip.
@@ -854,6 +984,19 @@ func TestWorker_NonPRMergedEventDoesNotFlip(t *testing.T) {
 	}
 	if status == "deployed" {
 		t.Errorf("ci_failure event flipped status to deployed (must only fire on pr_merged)")
+	}
+
+	// PUL-202 regression-guard: non-pr_merged events must never leak a
+	// "deploy_flip=" prefix into action_reason. A future edit that moves
+	// the flipPrefix-init block outside the `if eventType == pr_merged`
+	// branch would silently break the audit contract; this assert pins it.
+	var reasonGot *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&reasonGot); err != nil {
+		t.Fatalf("read action_reason: %v", err)
+	}
+	if reasonGot != nil && strings.Contains(*reasonGot, "deploy_flip=") {
+		t.Errorf("non-pr_merged event leaked deploy_flip= prefix: %q", *reasonGot)
 	}
 }
 

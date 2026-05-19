@@ -1150,6 +1150,9 @@ func runIssueCascade(cmd *cobra.Command, args []string) error {
 			action = "—"
 		}
 		reason := strVal(r, "action_reason")
+		if reason == "" {
+			reason = "—"
+		}
 		if utf8.RuneCountInString(reason) > 80 {
 			runes := []rune(reason)
 			reason = string(runes[:77]) + "..."
