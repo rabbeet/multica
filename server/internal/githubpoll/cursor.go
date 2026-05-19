@@ -2,6 +2,7 @@ package githubpoll
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -17,9 +18,17 @@ import (
 // split confined to cursor.go so callers see plain Go semantics.
 type Cursor struct {
 	Repo         string
-	LastEventID  int64  // 0 means "no successful poll yet"
+	LastEventID  int64 // legacy single-scalar cursor; ignored by the poller after PUL-201, kept on the column for one or two releases of stabilization before being dropped
 	LastPolledAt time.Time
 	ETag         string // empty when no successful 200 has been observed
+	// CursorByType is the per-event-type position, keyed by GitHub's
+	// Event.Type string ("PullRequestEvent", "PushEvent", ...). Added
+	// in PUL-201 because GitHub /events returns events from at least
+	// two distinct numeric-id streams (~9.6e9 for PR-shaped events,
+	// ~12e9 for Push/Create/Delete/WorkflowRun) and a single scalar
+	// cursor cannot represent both. nil and an empty map are
+	// equivalent ("no type seen yet" — every type compares with 0).
+	CursorByType map[string]int64
 }
 
 // CursorStore is the pgx-backed implementation of cursor I/O. The
@@ -47,12 +56,13 @@ func (s *CursorStore) Load(ctx context.Context, repo string) (Cursor, error) {
 	var lastEventID *int64
 	var lastPolledAt *time.Time
 	var etag *string
+	var cursorByTypeRaw []byte
 	row := s.Pool.QueryRow(ctx, `
-		SELECT repo, last_event_id, last_polled_at, etag
+		SELECT repo, last_event_id, last_polled_at, etag, cursor_by_type
 		FROM github_poll_cursor
 		WHERE repo = $1
 	`, repo)
-	err := row.Scan(&c.Repo, &lastEventID, &lastPolledAt, &etag)
+	err := row.Scan(&c.Repo, &lastEventID, &lastPolledAt, &etag, &cursorByTypeRaw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Cursor{Repo: repo}, nil
@@ -67,6 +77,22 @@ func (s *CursorStore) Load(ctx context.Context, repo string) (Cursor, error) {
 	}
 	if etag != nil {
 		c.ETag = *etag
+	}
+	// JSONB → map[string]int64. json.Unmarshal rejects non-integer
+	// values for the int64 target, which is the defense we want: an
+	// operator that hand-edits a malformed row (e.g.
+	// `'{"PushEvent":"abc"}'::jsonb`) gets a hard error here rather
+	// than silently re-introducing the PR-blindness PUL-201 fixed —
+	// "{}" → empty map (no per-type position recorded yet). The
+	// column is NOT NULL with default '{}'::jsonb, so cursorByTypeRaw
+	// is never nil-on-the-wire, but we guard for the case anyway in
+	// case an older migration shape ever surfaces.
+	if len(cursorByTypeRaw) > 0 {
+		decoded := map[string]int64{}
+		if err := json.Unmarshal(cursorByTypeRaw, &decoded); err != nil {
+			return Cursor{}, fmt.Errorf("cursor.Load(%s): decode cursor_by_type: %w", repo, err)
+		}
+		c.CursorByType = decoded
 	}
 	return c, nil
 }
@@ -102,14 +128,26 @@ func (s *CursorStore) Save(ctx context.Context, c Cursor) error {
 	if c.ETag != "" {
 		etag = c.ETag
 	}
-	_, err := s.Pool.Exec(ctx, `
-		INSERT INTO github_poll_cursor (repo, last_event_id, last_polled_at, etag)
-		VALUES ($1, $2, $3, $4)
+	// cursor_by_type is NOT NULL with default '{}', so we always send
+	// a JSON value. nil and an empty map both serialize to '{}', which
+	// is the canonical "no per-type position recorded yet" value.
+	cursorByType := c.CursorByType
+	if cursorByType == nil {
+		cursorByType = map[string]int64{}
+	}
+	cursorByTypeJSON, err := json.Marshal(cursorByType)
+	if err != nil {
+		return fmt.Errorf("cursor.Save(%s): encode cursor_by_type: %w", c.Repo, err)
+	}
+	_, err = s.Pool.Exec(ctx, `
+		INSERT INTO github_poll_cursor (repo, last_event_id, last_polled_at, etag, cursor_by_type)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (repo) DO UPDATE
 			SET last_event_id  = EXCLUDED.last_event_id,
 			    last_polled_at = EXCLUDED.last_polled_at,
-			    etag           = EXCLUDED.etag
-	`, c.Repo, lastEventID, lastPolledAt, etag)
+			    etag           = EXCLUDED.etag,
+			    cursor_by_type = EXCLUDED.cursor_by_type
+	`, c.Repo, lastEventID, lastPolledAt, etag, cursorByTypeJSON)
 	if err != nil {
 		return fmt.Errorf("cursor.Save(%s): %w", c.Repo, err)
 	}
@@ -139,6 +177,16 @@ func (m *memCursorStore) Load(_ context.Context, repo string) (Cursor, error) {
 	if !ok {
 		return Cursor{Repo: repo}, nil
 	}
+	// Defensive copy: mutating the returned map must not corrupt the
+	// stored row (the production store has the same property by
+	// virtue of the JSON round-trip).
+	if c.CursorByType != nil {
+		copied := make(map[string]int64, len(c.CursorByType))
+		for k, v := range c.CursorByType {
+			copied[k] = v
+		}
+		c.CursorByType = copied
+	}
 	return c, nil
 }
 
@@ -149,6 +197,17 @@ func (m *memCursorStore) Save(_ context.Context, c Cursor) error {
 	}
 	if m.rows == nil {
 		m.rows = map[string]Cursor{}
+	}
+	// Defensive copy of CursorByType so a test that mutates the live
+	// poller's map (or vice versa) does not corrupt the stored row.
+	// Production CursorStore implicitly copies via the JSON round-trip;
+	// here we have to be explicit.
+	if c.CursorByType != nil {
+		copied := make(map[string]int64, len(c.CursorByType))
+		for k, v := range c.CursorByType {
+			copied[k] = v
+		}
+		c.CursorByType = copied
 	}
 	m.rows[c.Repo] = c
 	return nil
