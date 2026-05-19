@@ -1092,9 +1092,12 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                       const isDueDateChange = entry.action === "due_date_changed";
 
                       let leadIcon: React.ReactNode;
-                      if (isStatusChange && details.to) {
+                      // PUL-199: `details.to` is an arbitrary server string. Validate
+                      // membership before casting; an unknown status would crash
+                      // StatusIcon (via STATUS_CONFIG miss). Same for priority.
+                      if (isStatusChange && details.to && details.to in STATUS_CONFIG) {
                         leadIcon = <StatusIcon status={details.to as IssueStatus} className="h-4 w-4 shrink-0" />;
-                      } else if (isPriorityChange && details.to) {
+                      } else if (isPriorityChange && details.to && details.to in PRIORITY_CONFIG) {
                         leadIcon = <PriorityIcon priority={details.to as IssuePriority} className="h-4 w-4 shrink-0" />;
                       } else if (isDueDateChange) {
                         leadIcon = <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />;

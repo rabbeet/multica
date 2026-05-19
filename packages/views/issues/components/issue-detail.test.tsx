@@ -596,6 +596,25 @@ describe("IssueDetail (shared)", () => {
     };
   }
 
+  // PUL-199: helper for status_changed activity entries whose `details.to`
+  // carries an arbitrary server string. The plain `activity()` helper above
+  // emits description_updated which doesn't exercise the StatusIcon path.
+  function statusChangeActivity(
+    id: string,
+    to: string,
+    created_at: string,
+  ): TimelineEntry {
+    return {
+      type: "activity",
+      id,
+      actor_type: "member",
+      actor_id: "user-1",
+      action: "status_changed",
+      created_at,
+      details: { from: "todo", to },
+    };
+  }
+
   /** Wrap a flat ASC list of TimelineEntry in the paginated TimelinePage shape
    *  the server returns. Sorts DESC because the hook reverses pages → ASC for
    *  the UI; the timelineView memo then reverses again to render newest-first.
@@ -726,5 +745,44 @@ describe("IssueDetail (shared)", () => {
     });
 
     expect(rootCommentIdsInOrder(container)).toEqual(["only"]);
+  });
+
+  // PUL-199 regression: when activity-log `details.to` carries a string
+  // outside the IssueStatus union, the timeline used to render
+  // `<StatusIcon status={details.to as IssueStatus}>` without validation,
+  // crashing inside StatusIcon on `STATUS_CONFIG[status].iconColor`.
+  // ErrorBoundary then swallowed the entire IssueDetail. These two tests
+  // pin both halves: unknown status renders without crashing, valid
+  // status still renders the icon.
+
+  it("(PUL-199) renders timeline with an unknown status_changed details.to without crashing", async () => {
+    mockTimelineWithEntries([
+      statusChangeActivity("a-unknown", "qa", "2026-01-01T00:00:00Z"),
+    ]);
+
+    const { container } = renderIssueDetail();
+    await waitFor(() => {
+      expect(screen.getAllByText("Activity").length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Did not blow up; ErrorBoundary fallback text would mean failure.
+    expect(container.textContent ?? "").not.toContain(
+      "Something went wrong displaying this section.",
+    );
+  });
+
+  it("(PUL-199) renders timeline with a valid status_changed details.to", async () => {
+    mockTimelineWithEntries([
+      statusChangeActivity("a-valid", "in_progress", "2026-01-01T00:00:00Z"),
+    ]);
+
+    const { container } = renderIssueDetail();
+    await waitFor(() => {
+      expect(screen.getAllByText("Activity").length).toBeGreaterThanOrEqual(1);
+    });
+
+    expect(container.textContent ?? "").not.toContain(
+      "Something went wrong displaying this section.",
+    );
   });
 });

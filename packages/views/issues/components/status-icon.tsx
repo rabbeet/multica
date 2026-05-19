@@ -214,8 +214,15 @@ export function StatusIcon({
   className?: string;
   inheritColor?: boolean;
 }) {
-  const cfg = STATUS_CONFIG[status];
-  const Renderer = STATUS_RENDERERS[status];
+  // PUL-199: defensive fallback for status strings that arrive at runtime
+  // outside the IssueStatus union (e.g. activity-log `details.to` carries
+  // arbitrary server strings via `as IssueStatus` casts). Without these
+  // guards, unknown statuses crash the whole IssueDetail via ErrorBoundary.
+  // The map declaration is still `Record<IssueStatus, ...>`, so adding a new
+  // status to the type still triggers a compile error if its config entry
+  // is missing — type-safety on additions is preserved.
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.todo;
+  const Renderer = STATUS_RENDERERS[status] ?? STATUS_RENDERERS.todo;
 
   return (
     <svg
