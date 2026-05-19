@@ -183,11 +183,16 @@ func TestPoller_TickOne_DryRunEndToEnd(t *testing.T) {
 		t.Errorf("PRNumber = %d, want 99", got[0].Event.PRNumber)
 	}
 
-	// Cursor must advance to the highest seen event ID, not just the
-	// classified one.
+	// PUL-201: cursor advances per-event-type, not as a single scalar.
+	// PullRequestEvent should be at 200, PushEvent at 100 — covers
+	// both classify-and-submit and skip paths advancing their type's
+	// position.
 	saved, _ := cur.Load(context.Background(), "rabbeet/Pulse")
-	if saved.LastEventID != 200 {
-		t.Errorf("LastEventID = %d, want 200", saved.LastEventID)
+	if saved.CursorByType["PullRequestEvent"] != 200 {
+		t.Errorf("CursorByType[PullRequestEvent] = %d, want 200", saved.CursorByType["PullRequestEvent"])
+	}
+	if saved.CursorByType["PushEvent"] != 100 {
+		t.Errorf("CursorByType[PushEvent] = %d, want 100", saved.CursorByType["PushEvent"])
 	}
 	if saved.ETag != `W/"abc"` {
 		t.Errorf("ETag = %q, want %q", saved.ETag, `W/"abc"`)
@@ -213,6 +218,7 @@ func TestPoller_TickOne_NotModified(t *testing.T) {
 	_ = cur.Save(context.Background(), Cursor{
 		Repo: "rabbeet/Pulse", LastEventID: 500, ETag: `W/"prev"`,
 		LastPolledAt: time.Date(2026, 5, 18, 7, 0, 0, 0, time.UTC),
+		CursorByType: map[string]int64{"PushEvent": 500},
 	})
 	sink := &captureSink{}
 	cfg := Config{
@@ -223,8 +229,8 @@ func TestPoller_TickOne_NotModified(t *testing.T) {
 	NewPoller(cfg, client, Classifier{}, cur, sink).tickOne(context.Background(), "rabbeet/Pulse")
 
 	saved, _ := cur.Load(context.Background(), "rabbeet/Pulse")
-	if saved.LastEventID != 500 {
-		t.Errorf("LastEventID = %d, want unchanged 500 on 304", saved.LastEventID)
+	if saved.CursorByType["PushEvent"] != 500 {
+		t.Errorf("CursorByType[PushEvent] = %d, want unchanged 500 on 304", saved.CursorByType["PushEvent"])
 	}
 	if !saved.LastPolledAt.Equal(time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)) {
 		t.Errorf("LastPolledAt = %v, want bumped to injected Now", saved.LastPolledAt)
@@ -244,15 +250,19 @@ func TestPoller_TickOne_RateLimitedDoesNotAdvance(t *testing.T) {
 	defer srv.Close()
 
 	cur := NewMemCursorStore()
-	_ = cur.Save(context.Background(), Cursor{Repo: "rabbeet/Pulse", LastEventID: 1000})
+	_ = cur.Save(context.Background(), Cursor{
+		Repo:         "rabbeet/Pulse",
+		LastEventID:  1000,
+		CursorByType: map[string]int64{"PushEvent": 1000},
+	})
 	sink := &captureSink{}
 	client := NewClient(NewStaticTokenSource("pat")).WithBaseURL(srv.URL)
 	NewPoller(Config{Repos: []string{"rabbeet/Pulse"}}, client, Classifier{}, cur, sink).
 		tickOne(context.Background(), "rabbeet/Pulse")
 
 	saved, _ := cur.Load(context.Background(), "rabbeet/Pulse")
-	if saved.LastEventID != 1000 {
-		t.Errorf("LastEventID = %d, want unchanged 1000 on rate limit", saved.LastEventID)
+	if saved.CursorByType["PushEvent"] != 1000 {
+		t.Errorf("CursorByType[PushEvent] = %d, want unchanged 1000 on rate limit", saved.CursorByType["PushEvent"])
 	}
 }
 
@@ -274,13 +284,15 @@ func TestPoller_TickOne_SinkErrorStopsAdvance(t *testing.T) {
 
 	cur := NewMemCursorStore()
 	// PUL-186: pre-seed cursor so this tick takes the steady-state
-	// classify-and-submit path (not first-run seed). LastEventID < 200
-	// so the fixture event still passes the id > sinceID filter.
+	// classify-and-submit path (not first-run seed). PUL-201:
+	// CursorByType seeded below the fixture event id so it passes
+	// the per-type filter in client.FetchEvents.
 	_ = cur.Save(context.Background(), Cursor{
 		Repo:         "rabbeet/Pulse",
 		LastEventID:  50,
 		LastPolledAt: time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC),
 		ETag:         `W/"prev"`,
+		CursorByType: map[string]int64{"PullRequestEvent": 50},
 	})
 	sink := &captureSink{err: errors.New("downstream down")}
 	client := NewClient(NewStaticTokenSource("pat")).WithBaseURL(srv.URL)
@@ -288,8 +300,9 @@ func TestPoller_TickOne_SinkErrorStopsAdvance(t *testing.T) {
 		tickOne(context.Background(), "rabbeet/Pulse")
 
 	saved, _ := cur.Load(context.Background(), "rabbeet/Pulse")
-	if saved.LastEventID != 50 {
-		t.Errorf("LastEventID = %d, want unchanged 50 (cursor must not advance past failed submit)", saved.LastEventID)
+	if saved.CursorByType["PullRequestEvent"] != 50 {
+		t.Errorf("CursorByType[PullRequestEvent] = %d, want unchanged 50 (cursor must not advance past failed submit)",
+			saved.CursorByType["PullRequestEvent"])
 	}
 }
 
@@ -310,6 +323,7 @@ func TestPoller_Run_TicksUntilCancel(t *testing.T) {
 		LastEventID:  50,
 		LastPolledAt: time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC),
 		ETag:         `W/"prev"`,
+		CursorByType: map[string]int64{"PushEvent": 50},
 	})
 	sink := &captureSink{}
 	client := NewClient(NewStaticTokenSource("pat")).WithBaseURL(srv.URL)
@@ -325,8 +339,8 @@ func TestPoller_Run_TicksUntilCancel(t *testing.T) {
 		t.Errorf("Run err = %v, want context error", err)
 	}
 	saved, _ := cur.Load(context.Background(), "rabbeet/Pulse")
-	if saved.LastEventID != 100 {
-		t.Errorf("LastEventID = %d, want 100 after first tick", saved.LastEventID)
+	if saved.CursorByType["PushEvent"] != 100 {
+		t.Errorf("CursorByType[PushEvent] = %d, want 100 after first tick", saved.CursorByType["PushEvent"])
 	}
 }
 
@@ -466,6 +480,32 @@ func loadFirstRunFixture(t *testing.T) string {
 //	    server/internal/githubpoll/testdata/first_run_events_capture.json
 const firstRunFixtureMaxID int64 = 12035692421
 
+// firstRunFixturePRMaxID is the max PullRequestEvent id in the
+// fixture. Used by tests that need to assert per-type seed values
+// (PUL-201). PR-shaped events live on the ~9.6e9 number line so the
+// PR-type max diverges sharply from the global max — that is the
+// whole point of per-event-type cursors.
+//
+// To recompute:
+//
+//	jq '[.[] | select(.type == "PullRequestEvent") | .id | tonumber] | max' \
+//	    server/internal/githubpoll/testdata/first_run_events_capture.json
+const firstRunFixturePRMaxID int64 = 9610256213
+
+// maxCursorByType returns the largest value across a CursorByType
+// map. Used by firstRun seed assertions where we want to verify the
+// global max id landed somewhere in the per-type map (which exact
+// type "owns" the max depends on fixture composition).
+func maxCursorByType(m map[string]int64) int64 {
+	var max int64
+	for _, v := range m {
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+
 func TestPoller_TickOne_FirstRun_SkipsHistoricEvents(t *testing.T) {
 	// Fresh cursor (no prior poll). Fixture contains 100 events
 	// spanning ~90 days of /events history. After firstRun seed, the
@@ -489,8 +529,24 @@ func TestPoller_TickOne_FirstRun_SkipsHistoricEvents(t *testing.T) {
 		t.Errorf("Submit count = %d, want 0 (first-run must not forward historic events)", got)
 	}
 	saved, _ := cur.Load(context.Background(), "rabbeet/multica")
-	if saved.LastEventID != firstRunFixtureMaxID {
-		t.Errorf("LastEventID = %d, want %d (fixture max id)", saved.LastEventID, firstRunFixtureMaxID)
+	// PUL-201: cursor is now per-type. The max across all types equals
+	// the fixture's global max id; the PR-type max diverges (lives on
+	// the ~9.6e9 stream while Create/Push/Delete live at ~12e9), so we
+	// assert per-type explicitly to lock in the multi-stream semantics.
+	if got := maxCursorByType(saved.CursorByType); got != firstRunFixtureMaxID {
+		t.Errorf("max(CursorByType) = %d, want %d (fixture global max)", got, firstRunFixtureMaxID)
+	}
+	if got := saved.CursorByType["PullRequestEvent"]; got != firstRunFixturePRMaxID {
+		t.Errorf("CursorByType[PullRequestEvent] = %d, want %d (PR-stream max — distinct from global max under per-type cursors)",
+			got, firstRunFixturePRMaxID)
+	}
+	// Seed must populate EVERY type observed on the page so the next
+	// tick does not re-forward stale events of a type that happened to
+	// be classifier-skipped (PUL-201 eng-review).
+	for _, want := range []string{"CreateEvent", "DeleteEvent", "IssueCommentEvent", "PullRequestEvent", "PushEvent"} {
+		if _, ok := saved.CursorByType[want]; !ok {
+			t.Errorf("CursorByType missing seed for %q — every Event.Type on page 1 must be seeded", want)
+		}
 	}
 	if saved.ETag != `W/"v0"` {
 		t.Errorf("ETag = %q, want %q", saved.ETag, `W/"v0"`)
@@ -550,12 +606,13 @@ func TestPoller_TickOne_SecondTickAfterSeedSubmitsOnlyNewEvents(t *testing.T) {
 		t.Fatalf("tick 1 Submit count = %d, want 0", got)
 	}
 	saved, _ := cur.Load(context.Background(), "rabbeet/multica")
-	if saved.LastEventID != firstRunFixtureMaxID {
-		t.Fatalf("tick 1 LastEventID = %d, want %d", saved.LastEventID, firstRunFixtureMaxID)
+	if got := maxCursorByType(saved.CursorByType); got != firstRunFixtureMaxID {
+		t.Fatalf("tick 1 max(CursorByType) = %d, want %d", got, firstRunFixtureMaxID)
 	}
 
-	// Tick 2 — only the newer event passes id > sinceID; the
-	// historic 100 are filtered out.
+	// Tick 2 — only the newer PR event passes per-type filtering;
+	// the historic 100 are filtered out (PR ones against the seeded
+	// PR cursor, others against their own type cursors).
 	p.tickOne(context.Background(), "rabbeet/multica")
 	events := sink.Events()
 	if len(events) != 1 {
@@ -568,8 +625,18 @@ func TestPoller_TickOne_SecondTickAfterSeedSubmitsOnlyNewEvents(t *testing.T) {
 		t.Errorf("tick 2 PRNumber = %d, want 999", events[0].Event.PRNumber)
 	}
 	saved2, _ := cur.Load(context.Background(), "rabbeet/multica")
-	if saved2.LastEventID != newerID {
-		t.Errorf("tick 2 LastEventID = %d, want %d", saved2.LastEventID, newerID)
+	if saved2.CursorByType["PullRequestEvent"] != newerID {
+		t.Errorf("tick 2 CursorByType[PullRequestEvent] = %d, want %d (new PR event must advance the PR cursor)",
+			saved2.CursorByType["PullRequestEvent"], newerID)
+	}
+	// Non-PR per-type cursors must be unchanged from tick 1 — tick 2
+	// has no fresh events of those types so their positions must NOT
+	// move.
+	for _, t2 := range []string{"PushEvent", "CreateEvent", "DeleteEvent"} {
+		if saved2.CursorByType[t2] != saved.CursorByType[t2] {
+			t.Errorf("tick 2 CursorByType[%s] = %d, want unchanged %d from tick 1 (no fresh events of that type)",
+				t2, saved2.CursorByType[t2], saved.CursorByType[t2])
+		}
 	}
 }
 
@@ -625,8 +692,9 @@ func TestPoller_TickOne_OperatorRewindDoesNotSeed(t *testing.T) {
 		t.Errorf("EventType = %q, want %q", events[0].Event.EventType, webhooks.EventTypePRMerged)
 	}
 	saved, _ := cur.Load(context.Background(), "rabbeet/Pulse")
-	if saved.LastEventID != 500 {
-		t.Errorf("LastEventID = %d, want 500 (cursor must advance to the event id)", saved.LastEventID)
+	if saved.CursorByType["PullRequestEvent"] != 500 {
+		t.Errorf("CursorByType[PullRequestEvent] = %d, want 500 (cursor must advance to the event id)",
+			saved.CursorByType["PullRequestEvent"])
 	}
 }
 
@@ -707,7 +775,90 @@ func TestPoller_TickOne_FirstRun_SaveErrorReSeedsNextTick(t *testing.T) {
 		t.Errorf("tick 2 Submit count = %d, want 0 (still firstRun, still no forward)", got)
 	}
 	saved2, _ := cur.Load(context.Background(), "rabbeet/multica")
-	if saved2.LastEventID != firstRunFixtureMaxID {
-		t.Errorf("tick 2 LastEventID = %d, want %d", saved2.LastEventID, firstRunFixtureMaxID)
+	if got := maxCursorByType(saved2.CursorByType); got != firstRunFixtureMaxID {
+		t.Errorf("tick 2 max(CursorByType) = %d, want %d", got, firstRunFixtureMaxID)
+	}
+}
+
+// TestPoller_TickOne_MigrationFromLegacyCursor_Reseeds models the
+// post-PUL-201 deploy state on a row that pre-existed under the
+// legacy single-scalar cursor. The 086 up migration clears
+// last_polled_at + etag on every row precisely so this branch fires
+// on the first post-deploy tick: cursor.LastPolledAt.IsZero() →
+// first-run seed engages → per-type map is populated from a fresh
+// /events snapshot → nothing is forwarded to the sink (those events
+// are pre-existing state, not "events that arrived while we were
+// watching").
+//
+// Without the migration's `UPDATE … SET last_polled_at = NULL`, the
+// row would carry a non-zero LastPolledAt + empty CursorByType, the
+// seed branch would skip, and the next tick would forward up to 100
+// events from /events into the sink. This test guards that property
+// from a Go-side regression (e.g. someone "simplifies" the seed
+// discriminator).
+func TestPoller_TickOne_MigrationFromLegacyCursor_Reseeds(t *testing.T) {
+	srv := newFakeGitHubStateful([]string{loadFirstRunFixture(t)})
+	defer srv.Close()
+
+	cur := NewMemCursorStore()
+	// Pre-load a row in the shape the 086 up migration leaves
+	// existing rows in: legacy LastEventID still populated, but
+	// LastPolledAt + ETag have been NULL'd. CursorByType empty.
+	_ = cur.Save(context.Background(), Cursor{
+		Repo:        "rabbeet/multica",
+		LastEventID: 12000000000, // pre-migration scalar position
+		// LastPolledAt and ETag are zero — that's the migration's
+		// signal to re-seed.
+	})
+
+	sink := &captureSink{}
+	cfg := Config{
+		Repos: []string{"rabbeet/multica"},
+		Now:   func() time.Time { return time.Date(2026, 5, 19, 9, 0, 0, 0, time.UTC) },
+	}
+	client := NewClient(NewStaticTokenSource("pat")).WithBaseURL(srv.URL)
+	NewPoller(cfg, client, Classifier{}, cur, sink).
+		tickOne(context.Background(), "rabbeet/multica")
+
+	// First post-deploy tick must NOT forward historic events.
+	if got := len(sink.Events()); got != 0 {
+		t.Errorf("Submit count = %d, want 0 (post-migration first tick must re-seed silently)", got)
+	}
+	saved, _ := cur.Load(context.Background(), "rabbeet/multica")
+	if len(saved.CursorByType) == 0 {
+		t.Fatal("CursorByType empty after migration-reseed tick — seed branch did not fire")
+	}
+	if got := maxCursorByType(saved.CursorByType); got != firstRunFixtureMaxID {
+		t.Errorf("max(CursorByType) = %d, want %d (fixture global max)", got, firstRunFixtureMaxID)
+	}
+	if got := saved.CursorByType["PullRequestEvent"]; got != firstRunFixturePRMaxID {
+		t.Errorf("CursorByType[PullRequestEvent] = %d, want %d (PR-stream max)",
+			got, firstRunFixturePRMaxID)
+	}
+	if !saved.LastPolledAt.Equal(cfg.Now()) {
+		t.Errorf("LastPolledAt = %v, want injected Now (must be set so next tick is NOT firstRun)", saved.LastPolledAt)
+	}
+}
+
+// TestFormatCursorByType_DeterministicAndStable confirms the log
+// repr is sorted by key — operators grepping logs across ticks see a
+// stable shape, and snapshot diffs in the audit trail are
+// meaningful. Empty input must produce an empty string rather than
+// `{}` or similar noise that would clutter the dashboard.
+func TestFormatCursorByType_DeterministicAndStable(t *testing.T) {
+	got := formatCursorByType(map[string]int64{
+		"PushEvent":        12078860926,
+		"PullRequestEvent": 9648929307,
+		"CreateEvent":      12079087170,
+	})
+	want := "CreateEvent:12079087170,PullRequestEvent:9648929307,PushEvent:12078860926"
+	if got != want {
+		t.Errorf("formatCursorByType = %q, want %q", got, want)
+	}
+	if formatCursorByType(nil) != "" {
+		t.Errorf("formatCursorByType(nil) should be empty string")
+	}
+	if formatCursorByType(map[string]int64{}) != "" {
+		t.Errorf("formatCursorByType(empty) should be empty string")
 	}
 }
