@@ -10,7 +10,16 @@ export function PriorityIcon({
   className?: string;
   inheritColor?: boolean;
 }) {
-  const cfg = PRIORITY_CONFIG[priority];
+  // PUL-199 follow-up: mirror the StatusIcon defensive fallback shipped
+  // in #46. Without it, an out-of-union `priority` (e.g. via `as
+  // IssuePriority` on activity-log `details.to`) would make `cfg.bars` /
+  // `cfg.color` throw, and IssueDetail's ErrorBoundary would swallow the
+  // surrounding section. The known call-site casts are guarded at the
+  // call-site, so there is no in-the-wild repro for the central component
+  // — but defense-in-depth applies symmetrically. The map declaration
+  // stays `Record<IssuePriority, ...>`, so adding a new priority still
+  // triggers a compile error when its config entry is missing.
+  const cfg = PRIORITY_CONFIG[priority] ?? PRIORITY_CONFIG.none;
 
   // "none" — simple horizontal dashes
   if (cfg.bars === 0) {
