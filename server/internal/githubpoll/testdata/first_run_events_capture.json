@@ -1,0 +1,3648 @@
+[
+  {
+    "id": "9610256213",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 42,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/42",
+        "id": 3705000093,
+        "number": 42,
+        "head": {
+          "ref": "fix/pul-188-worktree-compose-isolation",
+          "sha": "da64d12a1f17b7e6ecfbd9dfc58fba23d7f1897c",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "e7bae2695240b9bf747466ef69779bfccfa2c36f",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T21:38:46Z"
+  },
+  {
+    "id": "12035692421",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "fix/pul-188-worktree-compose-isolation",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/fix/pul-188-worktree-compose-isolation",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T21:38:21Z"
+  },
+  {
+    "id": "9610197102",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 41,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/41",
+        "id": 3704992600,
+        "number": 41,
+        "head": {
+          "ref": "agent-2/pul-181-markdown-aware-autodetect",
+          "sha": "57d022ec0419dfa5c58b4fc93a363488356db620",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "e7bae2695240b9bf747466ef69779bfccfa2c36f",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T21:37:06Z"
+  },
+  {
+    "id": "12035613441",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-181-markdown-aware-autodetect",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-181-markdown-aware-autodetect",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T21:35:57Z"
+  },
+  {
+    "id": "9609357367",
+    "type": "IssueCommentEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "created",
+      "issue": {
+        "url": "https://api.github.com/repos/rabbeet/multica/issues/40",
+        "repository_url": "https://api.github.com/repos/rabbeet/multica",
+        "labels_url": "https://api.github.com/repos/rabbeet/multica/issues/40/labels{/name}",
+        "comments_url": "https://api.github.com/repos/rabbeet/multica/issues/40/comments",
+        "events_url": "https://api.github.com/repos/rabbeet/multica/issues/40/events",
+        "html_url": "https://github.com/rabbeet/multica/pull/40",
+        "id": 4472599330,
+        "node_id": "PR_kwDOSWRAxs7c05pD",
+        "number": 40,
+        "title": "[PUL-182] feat(server): TTL cleanup for stale issue_skill_state rows",
+        "user": {
+          "login": "redacted-user",
+          "id": 161840433,
+          "node_id": "U_kgDOCaV9MQ",
+          "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/redacted-user",
+          "html_url": "https://github.com/rabbeet",
+          "followers_url": "https://api.github.com/users/rabbeet/followers",
+          "following_url": "https://api.github.com/users/rabbeet/following{/other_user}",
+          "gists_url": "https://api.github.com/users/rabbeet/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/rabbeet/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/rabbeet/subscriptions",
+          "organizations_url": "https://api.github.com/users/rabbeet/orgs",
+          "repos_url": "https://api.github.com/users/rabbeet/repos",
+          "events_url": "https://api.github.com/users/rabbeet/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/rabbeet/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "labels": [],
+        "state": "open",
+        "locked": false,
+        "assignees": [],
+        "milestone": null,
+        "comments": 1,
+        "created_at": "2026-05-18T21:09:32Z",
+        "updated_at": "2026-05-18T21:13:14Z",
+        "closed_at": null,
+        "assignee": null,
+        "active_lock_reason": null,
+        "draft": false,
+        "pull_request": {
+          "url": "https://api.github.com/repos/rabbeet/multica/pulls/40",
+          "html_url": "https://github.com/rabbeet/multica/pull/40",
+          "diff_url": "https://github.com/rabbeet/multica/pull/40.diff",
+          "patch_url": "https://github.com/rabbeet/multica/pull/40.patch",
+          "merged_at": null
+        },
+        "body": "multica: [PUL-182](https://multica.ai/issues/PUL-182)\n\n## Summary\n\nPUL-177 ([#36](https://github.com/rabbeet/multica/pull/36)) shipped `issue_skill_state` with a two-state machine (`in_progress` \u2192 `done`). A skill that started but never reported `done` \u2014 claude-code crashed, rate-limit hit, agent worktree force-killed, user Ctrl-C \u2014 leaves a phantom `in_progress` chip in the Inbox forever. (The agent-1 rate-limit leak comment on the parent multica issue is itself an example of the failure shape.)\n\nThis PR is the cron half of the fix called out in PUL-177's plan \"Failure modes\" D7: a TTL sweep that deletes stale `in_progress` rows every 15 minutes (default 24h TTL, override via `ISSUE_SKILL_STATE_STALE_TTL`). `done` rows are intentionally never touched \u2014 they back LastSkillChip + SkillHistory and must persist.\n\n## Plan\n\nThis PR implements [`2026-05-18-pul-182-issue-skill-state-ttl-cleanup.md`](https://github.com/rabbeet/plans/blob/main/Multica/2026-05-18-pul-182-issue-skill-state-ttl-cleanup.md). Published before implementation started (audit log).\n\nThree options were on the table (Mechanism A/B/C from [PUL-182](https://multica.ai/issues/PUL-182) description). Chose **A (cron + DELETE)**:\n\n- vs B (lazy filter on read) \u2014 leaves rows in the DB, splits behavior between Inbox and Issue-detail pages, accumulates dead state.\n- vs C (new `stale` enum) \u2014 needs a migration to extend `CHECK (status IN ('in_progress', 'done'))`, plus new UI styling. Over-engineering for v1.1.\n\n## Changes\n\n- `server/pkg/db/queries/issue_skill_state.sql` \u2014 new `CleanupStaleIssueSkillStates :many` query. Uses `make_interval(secs => @ttl_seconds::bigint)` for typed-int TTL; `status = 'in_progress'` strict (so a future `stale` enum is an explicit re-decision); `RETURNING` shapes per-row debug logs without a follow-up SELECT.\n- `server/pkg/db/generated/issue_skill_state.sql.go` \u2014 regenerated via `sqlc generate` (v1.31.1).\n- `server/internal/handler/skill_state_cleanup_test.go` \u2014 5 query-level cases: stale `in_progress` deleted; fresh `in_progress` preserved; `done` never touched (even at 100d age); 4-row mixed batch; strict-`<` TTL boundary.\n- `server/cmd/server/skill_state_cleanup_scheduler.go` \u2014 `runSkillStateCleanupScheduler` on a 15-min ticker. Synchronous startup tick so post-crash recovery is not stuck waiting 15 minutes. `slog.Info` only fires when something was actually cleaned (silent on healthy idle); `slog.Debug` per row for ops debugging.\n- `server/cmd/server/skill_state_cleanup_scheduler_test.go` \u2014 3 tick-level cases: stale row deleted by tick; fresh + done preserved; cancelled-context tick returns without panic.\n- `server/cmd/server/main.go` \u2014 one `envDuration(\"ISSUE_SKILL_STATE_STALE_TTL\", 24*time.Hour)` + one `go runSkillStateCleanupScheduler(...)` slotted next to the other `autopilotCtx`-scoped schedulers (shares graceful-shutdown contract).\n\nNo migration. No frontend change. CHECK constraint untouched.\n\n## Test plan\n\n- [x] `go build ./...` clean\n- [x] `go vet ./...` clean\n- [x] `go test ./...` \u2014 non-DB tests pass; DB-dependent tests skip via the existing `TestMain` `pool.Ping \u2192 os.Exit(0)` path on this brainstorm host (no local PG with `multica:multica` superuser). CI runs them against the docker-up postgres service (see `.github/workflows/ci.yml`).\n- [ ] CI green on Go test suite (this PR + new tests)\n- [ ] Manual: deploy to staging, set `ISSUE_SKILL_STATE_STALE_TTL=1m`, verify scheduler log line `skill_state cleanup: removed stale in_progress rows deleted=N ttl=1m0s` appears once and stays quiet thereafter.\n\n## Agent context\n\nBuilt by `agent-2` running as a multica.ai workspace agent on the host (`CLAUDE_CONFIG_DIR=/home/multica/.claude/agent-2/`, worktree=`/srv/agent-worktrees/agent-2-pul-182-skill-state-ttl-cleanup/`). Plan + implementation in one session. Worktree branch: `agent-2/pul-182-skill-state-ttl-cleanup`. Spawned after agent-1 hit a claude.ai rate-limit on the same task (the leaked rate-limit string is preserved as the first comment on [PUL-182](https://multica.ai/issues/PUL-182) for context \u2014 not deleted).\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)",
+        "reactions": {
+          "url": "https://api.github.com/repos/rabbeet/multica/issues/40/reactions",
+          "total_count": 0,
+          "+1": 0,
+          "-1": 0,
+          "laugh": 0,
+          "hooray": 0,
+          "confused": 0,
+          "heart": 0,
+          "rocket": 0,
+          "eyes": 0
+        },
+        "timeline_url": "https://api.github.com/repos/rabbeet/multica/issues/40/timeline",
+        "performed_via_github_app": null,
+        "state_reason": null
+      },
+      "comment": {
+        "url": "https://api.github.com/repos/rabbeet/multica/issues/comments/4482266193",
+        "html_url": "https://github.com/rabbeet/multica/pull/40#issuecomment-4482266193",
+        "issue_url": "https://api.github.com/repos/rabbeet/multica/issues/40",
+        "id": 4482266193,
+        "node_id": "IC_kwDOSWRAxs8AAAABCyn0UQ",
+        "user": {
+          "login": "redacted-user",
+          "id": 161840433,
+          "node_id": "U_kgDOCaV9MQ",
+          "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/redacted-user",
+          "html_url": "https://github.com/rabbeet",
+          "followers_url": "https://api.github.com/users/rabbeet/followers",
+          "following_url": "https://api.github.com/users/rabbeet/following{/other_user}",
+          "gists_url": "https://api.github.com/users/rabbeet/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/rabbeet/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/rabbeet/subscriptions",
+          "organizations_url": "https://api.github.com/users/rabbeet/orgs",
+          "repos_url": "https://api.github.com/users/rabbeet/repos",
+          "events_url": "https://api.github.com/users/rabbeet/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/rabbeet/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "created_at": "2026-05-18T21:13:14Z",
+        "updated_at": "2026-05-18T21:13:14Z",
+        "body": "**multica issue link:** [PUL-182](https://multica.ai/issues/PUL-182)\n\nNote for the multica side: I tried to post this PR link back to the originating multica issue as a comment but my agent's session token (`~/.multica/config.json` and `MULTICA_TOKEN` env, value `mul_3c068e...`) is rejected by the local multica server with `401 invalid token`. The alternate PAT in 1Password (`MULTICA_API_KEY = mul_d5c278...`) is also rejected. Either the server's `JWT_SECRET` was rotated recently or both PATs were revoked / never issued for this server identity.\n\nFalling back to a comment here on the PR so the loop is at least visible somewhere. Re-issue the agent-2 PAT in multica when you have a moment and the audit trail in the multica thread will work again on the next task.\n\n\u2014 agent-2 (Claude Opus 4.7, multica.ai workspace agent)",
+        "reactions": {
+          "url": "https://api.github.com/repos/rabbeet/multica/issues/comments/4482266193/reactions",
+          "total_count": 0,
+          "+1": 0,
+          "-1": 0,
+          "laugh": 0,
+          "hooray": 0,
+          "confused": 0,
+          "heart": 0,
+          "rocket": 0,
+          "eyes": 0
+        },
+        "performed_via_github_app": null
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T21:13:14Z"
+  },
+  {
+    "id": "9609227110",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 40,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/40",
+        "id": 3704855107,
+        "number": 40,
+        "head": {
+          "ref": "agent-2/pul-182-skill-state-ttl-cleanup",
+          "sha": "394e9b70e7e7436a5f4629bd2a177fe7c63b5bb6",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "e7bae2695240b9bf747466ef69779bfccfa2c36f",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T21:09:32Z"
+  },
+  {
+    "id": "12034664975",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-182-skill-state-ttl-cleanup",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-182-skill-state-ttl-cleanup",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T21:08:35Z"
+  },
+  {
+    "id": "12028984330",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34319582491,
+      "ref": "refs/heads/main",
+      "head": "e7bae2695240b9bf747466ef69779bfccfa2c36f",
+      "before": "fa5066e7179a0eed2966525a4cabb24520fd122d"
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:43:35Z"
+  },
+  {
+    "id": "12028980629",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-180-inbox-ownership-chip",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-180-inbox-ownership-chip",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:43:30Z"
+  },
+  {
+    "id": "9603451005",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 39,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/39",
+        "id": 3703974863,
+        "number": 39,
+        "head": {
+          "ref": "agent-1/pul-180-inbox-ownership-chip",
+          "sha": "1d4f78933187ae2e2c4b5ad670dfd379c19b4c96",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ce6b934985d331030962d5cd2b8be9714cc181fa",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:43:28Z"
+  },
+  {
+    "id": "12028676724",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34319274000,
+      "ref": "refs/heads/main",
+      "head": "fa5066e7179a0eed2966525a4cabb24520fd122d",
+      "before": "ce6b934985d331030962d5cd2b8be9714cc181fa"
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:35:47Z"
+  },
+  {
+    "id": "12028676980",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-185-classifier-rest-shape",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-185-classifier-rest-shape",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:35:47Z"
+  },
+  {
+    "id": "9603151124",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 38,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/38",
+        "id": 3703847627,
+        "number": 38,
+        "head": {
+          "ref": "agent-2/pul-185-classifier-rest-shape",
+          "sha": "52977d4c71f82d139f2e06ab2dfcaaa3010663dd",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ce6b934985d331030962d5cd2b8be9714cc181fa",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:35:45Z"
+  },
+  {
+    "id": "9602905140",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 39,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/39",
+        "id": 3703974863,
+        "number": 39,
+        "head": {
+          "ref": "agent-1/pul-180-inbox-ownership-chip",
+          "sha": "1d4f78933187ae2e2c4b5ad670dfd379c19b4c96",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ce6b934985d331030962d5cd2b8be9714cc181fa",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:29:21Z"
+  },
+  {
+    "id": "12028393654",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-180-inbox-ownership-chip",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-180-inbox-ownership-chip",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:28:46Z"
+  },
+  {
+    "id": "9602009838",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 38,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/38",
+        "id": 3703847627,
+        "number": 38,
+        "head": {
+          "ref": "agent-2/pul-185-classifier-rest-shape",
+          "sha": "52977d4c71f82d139f2e06ab2dfcaaa3010663dd",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ce6b934985d331030962d5cd2b8be9714cc181fa",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:07:07Z"
+  },
+  {
+    "id": "12027502579",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-185-classifier-rest-shape",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-185-classifier-rest-shape",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T18:06:36Z"
+  },
+  {
+    "id": "9599210196",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 37,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/37",
+        "id": 3703418000,
+        "number": 37,
+        "head": {
+          "ref": "agent-2/pul-183-classifier-html-url",
+          "sha": "42c5fd14906d8df221205dcb4518c37d77220b17",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "5f38b2c2116839f196ce66288d6d4ea8474cfbaf",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T16:56:53Z"
+  },
+  {
+    "id": "12024641528",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34315240909,
+      "ref": "refs/heads/main",
+      "head": "ce6b934985d331030962d5cd2b8be9714cc181fa",
+      "before": "5f38b2c2116839f196ce66288d6d4ea8474cfbaf"
+    },
+    "public": true,
+    "created_at": "2026-05-18T16:56:54Z"
+  },
+  {
+    "id": "12024641623",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-183-classifier-html-url",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-183-classifier-html-url",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T16:56:55Z"
+  },
+  {
+    "id": "9598958783",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 37,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/37",
+        "id": 3703418000,
+        "number": 37,
+        "head": {
+          "ref": "agent-2/pul-183-classifier-html-url",
+          "sha": "42c5fd14906d8df221205dcb4518c37d77220b17",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "5f38b2c2116839f196ce66288d6d4ea8474cfbaf",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T16:50:38Z"
+  },
+  {
+    "id": "12024350461",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-183-classifier-html-url",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-183-classifier-html-url",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T16:50:14Z"
+  },
+  {
+    "id": "12024229442",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34314829614,
+      "ref": "refs/heads/main",
+      "head": "5f38b2c2116839f196ce66288d6d4ea8474cfbaf",
+      "before": "23cade2fa37a1e488b0428f177ce39bc1bc5e5a7"
+    },
+    "public": true,
+    "created_at": "2026-05-18T16:47:24Z"
+  },
+  {
+    "id": "9598820070",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 36,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/36",
+        "id": 3702981760,
+        "number": 36,
+        "head": {
+          "ref": "agent-2/pul-177-inbox-skill-progress",
+          "sha": "868e059a806a87eccd08c6bb328d374228c757ce",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "23cade2fa37a1e488b0428f177ce39bc1bc5e5a7",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T16:47:23Z"
+  },
+  {
+    "id": "12021231225",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34311832936,
+      "ref": "refs/heads/agent-2/pul-177-inbox-skill-progress",
+      "head": "868e059a806a87eccd08c6bb328d374228c757ce",
+      "before": "1298af4e4065972be6bea0d9ded8286637898882"
+    },
+    "public": true,
+    "created_at": "2026-05-18T15:39:16Z"
+  },
+  {
+    "id": "9595773046",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 36,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/36",
+        "id": 3702981760,
+        "number": 36,
+        "head": {
+          "ref": "agent-2/pul-177-inbox-skill-progress",
+          "sha": "868e059a806a87eccd08c6bb328d374228c757ce",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "23cade2fa37a1e488b0428f177ce39bc1bc5e5a7",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T15:32:13Z"
+  },
+  {
+    "id": "12020810148",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-177-inbox-skill-progress",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-177-inbox-skill-progress",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T15:30:21Z"
+  },
+  {
+    "id": "12012768530",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34303382575,
+      "ref": "refs/heads/agent-1/pul-166-pr5-cleanup",
+      "head": "fa64507cd79d67ac6981cdb343e27d522e4b82f4",
+      "before": "0a3cf55ab2c3018135367e973545f4604b04b152"
+    },
+    "public": true,
+    "created_at": "2026-05-18T12:45:06Z"
+  },
+  {
+    "id": "9588371965",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 35,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/35",
+        "id": 3701922195,
+        "number": 35,
+        "head": {
+          "ref": "agent-1/pul-166-pr5-cleanup",
+          "sha": "fa64507cd79d67ac6981cdb343e27d522e4b82f4",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "23cade2fa37a1e488b0428f177ce39bc1bc5e5a7",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T12:40:57Z"
+  },
+  {
+    "id": "12012561945",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-166-pr5-cleanup",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-166-pr5-cleanup",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T12:40:32Z"
+  },
+  {
+    "id": "12005977512",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34296592955,
+      "ref": "refs/heads/main",
+      "head": "23cade2fa37a1e488b0428f177ce39bc1bc5e5a7",
+      "before": "fe2b3898b13f308a861eb2df179f1ce96c0a1f55"
+    },
+    "public": true,
+    "created_at": "2026-05-18T10:05:56Z"
+  },
+  {
+    "id": "9582359193",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 34,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/34",
+        "id": 3700996531,
+        "number": 34,
+        "head": {
+          "ref": "agent-1/pul-166-pr3-cascade-sink",
+          "sha": "2de52608ef8dc86153e6d041ee226636fd7a1bab",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "fe2b3898b13f308a861eb2df179f1ce96c0a1f55",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T10:05:54Z"
+  },
+  {
+    "id": "12005962492",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34296578101,
+      "ref": "refs/heads/agent-1/pul-166-pr3-cascade-sink",
+      "head": "2de52608ef8dc86153e6d041ee226636fd7a1bab",
+      "before": "00f51f880da2d7a6bdcffcb15cd67d33a7b7f786"
+    },
+    "public": true,
+    "created_at": "2026-05-18T10:05:36Z"
+  },
+  {
+    "id": "9581872633",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 34,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/34",
+        "id": 3700996531,
+        "number": 34,
+        "head": {
+          "ref": "agent-1/pul-166-pr3-cascade-sink",
+          "sha": "2de52608ef8dc86153e6d041ee226636fd7a1bab",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "fe2b3898b13f308a861eb2df179f1ce96c0a1f55",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T09:54:04Z"
+  },
+  {
+    "id": "12005425542",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-166-pr3-cascade-sink",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-166-pr3-cascade-sink",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T09:53:34Z"
+  },
+  {
+    "id": "12003347876",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34293978144,
+      "ref": "refs/heads/main",
+      "head": "fe2b3898b13f308a861eb2df179f1ce96c0a1f55",
+      "before": "fddc564b82767bf050cf3d9f0d73c01f2b5ca8b7"
+    },
+    "public": true,
+    "created_at": "2026-05-18T09:05:57Z"
+  },
+  {
+    "id": "9579907242",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 33,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/33",
+        "id": 3700621642,
+        "number": 33,
+        "head": {
+          "ref": "agent-1/pul-166-pr2-poller-package",
+          "sha": "4114e9745fa61f5411767030328f23e99d4983d0",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "fddc564b82767bf050cf3d9f0d73c01f2b5ca8b7",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T09:05:56Z"
+  },
+  {
+    "id": "9579759854",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "reopened",
+      "number": 33,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/33",
+        "id": 3700621642,
+        "number": 33,
+        "head": {
+          "ref": "agent-1/pul-166-pr2-poller-package",
+          "sha": "4114e9745fa61f5411767030328f23e99d4983d0",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "fddc564b82767bf050cf3d9f0d73c01f2b5ca8b7",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T09:02:11Z"
+  },
+  {
+    "id": "9579758046",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "closed",
+      "number": 33,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/33",
+        "id": 3700621642,
+        "number": 33,
+        "head": {
+          "ref": "agent-1/pul-166-pr2-poller-package",
+          "sha": "4114e9745fa61f5411767030328f23e99d4983d0",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "fddc564b82767bf050cf3d9f0d73c01f2b5ca8b7",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T09:01:16Z"
+  },
+  {
+    "id": "12003123332",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34293755567,
+      "ref": "refs/heads/agent-1/pul-166-pr2-poller-package",
+      "head": "4114e9745fa61f5411767030328f23e99d4983d0",
+      "before": "014fa359a50bcc4fe2254c97b36b5149751cc922"
+    },
+    "public": true,
+    "created_at": "2026-05-18T09:00:58Z"
+  },
+  {
+    "id": "12003045560",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34293678695,
+      "ref": "refs/heads/main",
+      "head": "fddc564b82767bf050cf3d9f0d73c01f2b5ca8b7",
+      "before": "77701b1d873d9e9855f960820ebd63e5c435df53"
+    },
+    "public": true,
+    "created_at": "2026-05-18T08:59:24Z"
+  },
+  {
+    "id": "9579645881",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 32,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/32",
+        "id": 3700435707,
+        "number": 32,
+        "head": {
+          "ref": "agent-1/pul-166-pr1-poll-cursor-migration",
+          "sha": "10acd56156cad0ed5f6ff4128ab86cf3f452e1d5",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "77701b1d873d9e9855f960820ebd63e5c435df53",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T08:59:23Z"
+  },
+  {
+    "id": "12003033280",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34293666537,
+      "ref": "refs/heads/agent-1/pul-166-pr2-poller-package",
+      "head": "014fa359a50bcc4fe2254c97b36b5149751cc922",
+      "before": "e593b946f726502f128c24e62e9672c5408349c2"
+    },
+    "public": true,
+    "created_at": "2026-05-18T08:59:07Z"
+  },
+  {
+    "id": "9579238352",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 33,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/33",
+        "id": 3700621642,
+        "number": 33,
+        "head": {
+          "ref": "agent-1/pul-166-pr2-poller-package",
+          "sha": "4114e9745fa61f5411767030328f23e99d4983d0",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "fddc564b82767bf050cf3d9f0d73c01f2b5ca8b7",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T08:49:12Z"
+  },
+  {
+    "id": "12002589405",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-166-pr2-poller-package",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-166-pr2-poller-package",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T08:48:33Z"
+  },
+  {
+    "id": "9577913104",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 32,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/32",
+        "id": 3700435707,
+        "number": 32,
+        "head": {
+          "ref": "agent-1/pul-166-pr1-poll-cursor-migration",
+          "sha": "10acd56156cad0ed5f6ff4128ab86cf3f452e1d5",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "77701b1d873d9e9855f960820ebd63e5c435df53",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T08:14:58Z"
+  },
+  {
+    "id": "12001136801",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-166-pr1-poll-cursor-migration",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-166-pr1-poll-cursor-migration",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T08:13:32Z"
+  },
+  {
+    "id": "11997691077",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "fix/migration-078-collision",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/fix/migration-078-collision",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:43:14Z"
+  },
+  {
+    "id": "11997690982",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34288341713,
+      "ref": "refs/heads/main",
+      "head": "77701b1d873d9e9855f960820ebd63e5c435df53",
+      "before": "a0b4556b4cd57d940c9ee8e03f1e635cce0f7a1d"
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:43:14Z"
+  },
+  {
+    "id": "9574626155",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 31,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/31",
+        "id": 3699964405,
+        "number": 31,
+        "head": {
+          "ref": "fix/migration-078-collision",
+          "sha": "eaf57b385e74d48fec74a28ca87bd8c92623c862",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "a0b4556b4cd57d940c9ee8e03f1e635cce0f7a1d",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:43:12Z"
+  },
+  {
+    "id": "9574623888",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 31,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/31",
+        "id": 3699964405,
+        "number": 31,
+        "head": {
+          "ref": "fix/migration-078-collision",
+          "sha": "eaf57b385e74d48fec74a28ca87bd8c92623c862",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "a0b4556b4cd57d940c9ee8e03f1e635cce0f7a1d",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:43:10Z"
+  },
+  {
+    "id": "11997680598",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "fix/migration-078-collision",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/fix/migration-078-collision",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:42:55Z"
+  },
+  {
+    "id": "11996788178",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "feat/pul-163-toolchain-hints",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/feat/pul-163-toolchain-hints",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:15:35Z"
+  },
+  {
+    "id": "11996787760",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34287438450,
+      "ref": "refs/heads/main",
+      "head": "a0b4556b4cd57d940c9ee8e03f1e635cce0f7a1d",
+      "before": "0cf6697328a82f9e43ac91372cee68afdf59c696"
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:15:35Z"
+  },
+  {
+    "id": "9573743217",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 30,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/30",
+        "id": 3699818236,
+        "number": 30,
+        "head": {
+          "ref": "feat/pul-163-toolchain-hints",
+          "sha": "439754cd0182a8e2b373ec986bed13d2c5217a21",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "0cf6697328a82f9e43ac91372cee68afdf59c696",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:15:33Z"
+  },
+  {
+    "id": "9573546438",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 30,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/30",
+        "id": 3699818236,
+        "number": 30,
+        "head": {
+          "ref": "feat/pul-163-toolchain-hints",
+          "sha": "439754cd0182a8e2b373ec986bed13d2c5217a21",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "0cf6697328a82f9e43ac91372cee68afdf59c696",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:07:59Z"
+  },
+  {
+    "id": "11996546905",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "feat/pul-163-toolchain-hints",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/feat/pul-163-toolchain-hints",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T06:07:48Z"
+  },
+  {
+    "id": "11996157295",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-168-cascade-trigger-context",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-168-cascade-trigger-context",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:55:31Z"
+  },
+  {
+    "id": "11996156760",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34286807315,
+      "ref": "refs/heads/main",
+      "head": "0cf6697328a82f9e43ac91372cee68afdf59c696",
+      "before": "2b9c620b67fffa5298077ed1a5cf48ff5330f435"
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:55:30Z"
+  },
+  {
+    "id": "9573223544",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 29,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/29",
+        "id": 3699698771,
+        "number": 29,
+        "head": {
+          "ref": "agent-2/pul-168-cascade-trigger-context",
+          "sha": "fff89647eca01562a8888fbbeabc0db7f347cb03",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "19d0c74d3e346c584634c41f5afc6f2ad86dc279",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:55:28Z"
+  },
+  {
+    "id": "11996040549",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34286690967,
+      "ref": "refs/heads/agent-2/pul-168-cascade-trigger-context",
+      "head": "fff89647eca01562a8888fbbeabc0db7f347cb03",
+      "before": "427a62541d99dbaed01e63b17d38f0962f7ec8ed"
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:51:25Z"
+  },
+  {
+    "id": "11995876171",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34286526713,
+      "ref": "refs/heads/main",
+      "head": "2b9c620b67fffa5298077ed1a5cf48ff5330f435",
+      "before": "19d0c74d3e346c584634c41f5afc6f2ad86dc279"
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:45:35Z"
+  },
+  {
+    "id": "9572959627",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 28,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/28",
+        "id": 3699640983,
+        "number": 28,
+        "head": {
+          "ref": "agent-2/u164-child-progress-mirror",
+          "sha": "6ce5f199b43d33b528aee4e1f35f0a4f7a8d4cee",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "19d0c74d3e346c584634c41f5afc6f2ad86dc279",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:45:34Z"
+  },
+  {
+    "id": "11995824522",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34286474792,
+      "ref": "refs/heads/agent-2/pul-168-cascade-trigger-context",
+      "head": "427a62541d99dbaed01e63b17d38f0962f7ec8ed",
+      "before": "04441093c00863b93358d832e454ebb26a8bdb41"
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:43:46Z"
+  },
+  {
+    "id": "11995762315",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34286412613,
+      "ref": "refs/heads/agent-2/u164-child-progress-mirror",
+      "head": "6ce5f199b43d33b528aee4e1f35f0a4f7a8d4cee",
+      "before": "df17cdf792f3f014ed9474e24caffd831c96b658"
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:41:30Z"
+  },
+  {
+    "id": "9572751963",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 29,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/29",
+        "id": 3699698771,
+        "number": 29,
+        "head": {
+          "ref": "agent-2/pul-168-cascade-trigger-context",
+          "sha": "fff89647eca01562a8888fbbeabc0db7f347cb03",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "19d0c74d3e346c584634c41f5afc6f2ad86dc279",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:38:03Z"
+  },
+  {
+    "id": "11995635015",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul-168-cascade-trigger-context",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul-168-cascade-trigger-context",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:36:52Z"
+  },
+  {
+    "id": "9572371942",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 28,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/28",
+        "id": 3699640983,
+        "number": 28,
+        "head": {
+          "ref": "agent-2/u164-child-progress-mirror",
+          "sha": "6ce5f199b43d33b528aee4e1f35f0a4f7a8d4cee",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "19d0c74d3e346c584634c41f5afc6f2ad86dc279",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:23:59Z"
+  },
+  {
+    "id": "11995252517",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/u164-child-progress-mirror",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/u164-child-progress-mirror",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-18T05:23:09Z"
+  },
+  {
+    "id": "11979520082",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul154-wake-up-reminder-frontend",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul154-wake-up-reminder-frontend",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T18:02:39Z"
+  },
+  {
+    "id": "11979519582",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34270159205,
+      "ref": "refs/heads/main",
+      "head": "19d0c74d3e346c584634c41f5afc6f2ad86dc279",
+      "before": "f7b297f8a8aa3ac96e1c055b30e8c6bdfb616765"
+    },
+    "public": true,
+    "created_at": "2026-05-17T18:02:38Z"
+  },
+  {
+    "id": "9560937835",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 27,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/27",
+        "id": 3697998890,
+        "number": 27,
+        "head": {
+          "ref": "agent-2/pul154-wake-up-reminder-frontend",
+          "sha": "d5dd75a0308fabbc7ccee6f8739e38d587465a26",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "4ecaa084b563566e6c5b1f91039695e631d749aa",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T18:02:37Z"
+  },
+  {
+    "id": "9560918223",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 26,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/26",
+        "id": 3697958172,
+        "number": 26,
+        "head": {
+          "ref": "agent-2/pul154-wake-up-reminder-pr1",
+          "sha": "4ab3155ccf9c953001f808e8567db49f1d51dd63",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ec28e94324c6e6fa4b25f34b3dc45a9f6d0c6bbb",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T18:01:32Z"
+  },
+  {
+    "id": "11979490350",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul154-wake-up-reminder-pr1",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul154-wake-up-reminder-pr1",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T18:01:34Z"
+  },
+  {
+    "id": "11979490010",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34270129618,
+      "ref": "refs/heads/main",
+      "head": "f7b297f8a8aa3ac96e1c055b30e8c6bdfb616765",
+      "before": "4ecaa084b563566e6c5b1f91039695e631d749aa"
+    },
+    "public": true,
+    "created_at": "2026-05-17T18:01:33Z"
+  },
+  {
+    "id": "9560868025",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 27,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/27",
+        "id": 3697998890,
+        "number": 27,
+        "head": {
+          "ref": "agent-2/pul154-wake-up-reminder-frontend",
+          "sha": "d5dd75a0308fabbc7ccee6f8739e38d587465a26",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "4ecaa084b563566e6c5b1f91039695e631d749aa",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:58:34Z"
+  },
+  {
+    "id": "11979394682",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul154-wake-up-reminder-frontend",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul154-wake-up-reminder-frontend",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:58:04Z"
+  },
+  {
+    "id": "9560716166",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 25,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/25",
+        "id": 3697951839,
+        "number": 25,
+        "head": {
+          "ref": "agent-1/pul-161-skill-autocomplete",
+          "sha": "c810f7ae01c8b4237ce45a7a0ebaf3b89e003e1e",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ec28e94324c6e6fa4b25f34b3dc45a9f6d0c6bbb",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:49:51Z"
+  },
+  {
+    "id": "11979203713",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34269842813,
+      "ref": "refs/heads/main",
+      "head": "4ecaa084b563566e6c5b1f91039695e631d749aa",
+      "before": "ec28e94324c6e6fa4b25f34b3dc45a9f6d0c6bbb"
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:49:52Z"
+  },
+  {
+    "id": "11979034788",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul154-wake-up-reminder",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul154-wake-up-reminder",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:42:42Z"
+  },
+  {
+    "id": "9560583972",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 26,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/26",
+        "id": 3697958172,
+        "number": 26,
+        "head": {
+          "ref": "agent-2/pul154-wake-up-reminder-pr1",
+          "sha": "4ab3155ccf9c953001f808e8567db49f1d51dd63",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ec28e94324c6e6fa4b25f34b3dc45a9f6d0c6bbb",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:42:33Z"
+  },
+  {
+    "id": "11979014496",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul154-wake-up-reminder-pr1",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul154-wake-up-reminder-pr1",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:41:50Z"
+  },
+  {
+    "id": "9560538646",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 25,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/25",
+        "id": 3697951839,
+        "number": 25,
+        "head": {
+          "ref": "agent-1/pul-161-skill-autocomplete",
+          "sha": "c810f7ae01c8b4237ce45a7a0ebaf3b89e003e1e",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ec28e94324c6e6fa4b25f34b3dc45a9f6d0c6bbb",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:40:06Z"
+  },
+  {
+    "id": "11978956618",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-161-skill-autocomplete",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-161-skill-autocomplete",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:39:26Z"
+  },
+  {
+    "id": "11978955126",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34269593761,
+      "ref": "refs/heads/agent-2/pul154-wake-up-reminder",
+      "head": "6775e86f90196be6e6c7b5317fd5e6d45b47d1f9",
+      "before": "4c2cfb29c3d08a56b5f6dfc3eca3f704b6df5237"
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:39:23Z"
+  },
+  {
+    "id": "11978879237",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34269517821,
+      "ref": "refs/heads/main",
+      "head": "ec28e94324c6e6fa4b25f34b3dc45a9f6d0c6bbb",
+      "before": "6c4fe70db23c7aa271032cb6f505de2fce7c0841"
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:36:15Z"
+  },
+  {
+    "id": "9560465787",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 24,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/24",
+        "id": 3697919200,
+        "number": 24,
+        "head": {
+          "ref": "agent-2/pul154-wake-up-reminder",
+          "sha": "4c2cfb29c3d08a56b5f6dfc3eca3f704b6df5237",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "6c4fe70db23c7aa271032cb6f505de2fce7c0841",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:36:14Z"
+  },
+  {
+    "id": "9560287230",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 24,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/24",
+        "id": 3697919200,
+        "number": 24,
+        "head": {
+          "ref": "agent-2/pul154-wake-up-reminder",
+          "sha": "4c2cfb29c3d08a56b5f6dfc3eca3f704b6df5237",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "6c4fe70db23c7aa271032cb6f505de2fce7c0841",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:27:36Z"
+  },
+  {
+    "id": "11978652683",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-2/pul154-wake-up-reminder",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-2/pul154-wake-up-reminder",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T17:26:55Z"
+  },
+  {
+    "id": "11966152992",
+    "type": "PushEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "repository_id": 1231306950,
+      "push_id": 34256789037,
+      "ref": "refs/heads/main",
+      "head": "6c4fe70db23c7aa271032cb6f505de2fce7c0841",
+      "before": "d0d7eaab24e48393fb9e8431e8e23b0dfc5405e0"
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:33:38Z"
+  },
+  {
+    "id": "9552247022",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 23,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/23",
+        "id": 3696745654,
+        "number": 23,
+        "head": {
+          "ref": "agent-1/pul-148-loop-guard-by-issue",
+          "sha": "bc64b87a1b94ee06755f78b920da3fabbcb8ce6b",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "d0d7eaab24e48393fb9e8431e8e23b0dfc5405e0",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:33:37Z"
+  },
+  {
+    "id": "9552121165",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 23,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/23",
+        "id": 3696745654,
+        "number": 23,
+        "head": {
+          "ref": "agent-1/pul-148-loop-guard-by-issue",
+          "sha": "bc64b87a1b94ee06755f78b920da3fabbcb8ce6b",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "d0d7eaab24e48393fb9e8431e8e23b0dfc5405e0",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:24:04Z"
+  },
+  {
+    "id": "11965951002",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-148-loop-guard-by-issue",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-148-loop-guard-by-issue",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:23:50Z"
+  },
+  {
+    "id": "11965752360",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-148-cascade-adapter-lookup",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-148-cascade-adapter-lookup",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:14:04Z"
+  },
+  {
+    "id": "9551966180",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "closed",
+      "number": 22,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/22",
+        "id": 3696700864,
+        "number": 22,
+        "head": {
+          "ref": "agent-1/pul-148-cascade-adapter-lookup",
+          "sha": "6c0e695305d53d376ca1a6e29a2ed403aa3f5dd2",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "d0d7eaab24e48393fb9e8431e8e23b0dfc5405e0",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:04:24Z"
+  },
+  {
+    "id": "9551966072",
+    "type": "IssueCommentEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "created",
+      "issue": {
+        "url": "https://api.github.com/repos/rabbeet/multica/issues/22",
+        "repository_url": "https://api.github.com/repos/rabbeet/multica",
+        "labels_url": "https://api.github.com/repos/rabbeet/multica/issues/22/labels{/name}",
+        "comments_url": "https://api.github.com/repos/rabbeet/multica/issues/22/comments",
+        "events_url": "https://api.github.com/repos/rabbeet/multica/issues/22/events",
+        "html_url": "https://github.com/rabbeet/multica/pull/22",
+        "id": 4462761528,
+        "node_id": "PR_kwDOSWRAxs7cVy3A",
+        "number": 22,
+        "title": "[PUL-148] fix(cascade): adapter relaxation + issue-based loop guard",
+        "user": {
+          "login": "redacted-user",
+          "id": 161840433,
+          "node_id": "U_kgDOCaV9MQ",
+          "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/redacted-user",
+          "html_url": "https://github.com/rabbeet",
+          "followers_url": "https://api.github.com/users/rabbeet/followers",
+          "following_url": "https://api.github.com/users/rabbeet/following{/other_user}",
+          "gists_url": "https://api.github.com/users/rabbeet/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/rabbeet/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/rabbeet/subscriptions",
+          "organizations_url": "https://api.github.com/users/rabbeet/orgs",
+          "repos_url": "https://api.github.com/users/rabbeet/repos",
+          "events_url": "https://api.github.com/users/rabbeet/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/rabbeet/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "labels": [],
+        "state": "closed",
+        "locked": false,
+        "assignees": [],
+        "milestone": null,
+        "comments": 1,
+        "created_at": "2026-05-17T08:04:24Z",
+        "updated_at": "2026-05-17T08:14:04Z",
+        "closed_at": "2026-05-17T08:14:02Z",
+        "assignee": null,
+        "active_lock_reason": null,
+        "draft": false,
+        "pull_request": {
+          "url": "https://api.github.com/repos/rabbeet/multica/pulls/22",
+          "html_url": "https://github.com/rabbeet/multica/pull/22",
+          "diff_url": "https://github.com/rabbeet/multica/pull/22.diff",
+          "patch_url": "https://github.com/rabbeet/multica/pull/22.patch",
+          "merged_at": null
+        },
+        "body": "multica: [PUL-148](https://multica.ai/issues/PUL-148)\n\n## Summary\n\nUnsticks the PUL-102 cascade pipeline on real GitHub deliveries. Verified empirically on the [PUL-143](https://multica.ai/issues/PUL-143) smoke 2026-05-16: webhook arrived (App Recent Deliveries 2xx), but no `cascade_retrigger` row was ever persisted because the adapter rejected `workflow_run.pull_requests=[]` payloads \u2014 the legitimate same-repo PR case.\n\nTwo coupled fixes:\n\n### 1. Adapter relaxation (`server/internal/webhooks/github/source.go`)\n\n`normalizeWorkflowRun` and `normalizeCheckRun` previously required `len(pull_requests) == 1`. GitHub frequently ships `pull_requests=[]` for legitimate same-repo PR runs (verified via `gh api repos/.../actions/runs/<id>` \u2014 count: 0 PRs on a run unambiguously tied to PR #498).\n\nFix: accept `len == 0` (persist with `PRURL=\"\"` `PRNumber=0`; worker resolves issue from `Branch` via existing `LookupIssueIdentifier`). Keep `len > 1` skip \u2014 genuine ambiguity from forks / merge queues.\n\n### 2. Loop-guard rekey (`server/internal/cascade/worker.go`)\n\n`checkLoopGuard` keyed off `pr_url`. With the adapter relaxation, multiple events with `pr_url=\"\"` would collapse into one bucket and false-trip after 3 distinct head_shas across unrelated PRs.\n\nFix: key the loop guard on `issue_id` (already populated by `resolveIssue` before this check runs). Threshold unchanged (3 distinct head_shas in 6h). Semantically tighter for multi-PR-per-issue agents.\n\n### 3. Index (`server/migrations/076_*`)\n\nNew `idx_cascade_retrigger_loop_guard_by_issue (issue_id, action, fired_at DESC)` serving the new query shape. Old `idx_cascade_retrigger_loop_guard (pr_url, ...)` left in place \u2014 analytics queries still benefit from it; dropping it is a separate cleanup.\n\n### 4. Contract amendment (`server/internal/webhooks/event.go`)\n\n`TriggerEvent` docstring updated: `PRURL`/`PRNumber` may be zero when `HeadSHA` + `Branch` carry enough for the worker to resolve the issue (PUL-148 case).\n\n### 5. Tests (`source_test.go`)\n\nExplicit fixtures for the empty-`pull_requests` path on both `workflow_run` and `check_run`.\n\n## Trade-offs vs the originally-proposed Option A\n\nThe PUL-148 description proposed a worker-side `commits/{sha}/pulls` API call to back-fill `pr_url`. That would have introduced GitHub credentials in the worker (breaking source-agnostic design) and added latency. The issue-based loop guard achieves the same correctness with no new external dependency and a more protective semantic (per-issue rather than per-PR).\n\n`PRURL`/`PRNumber` in the agent `TriggerContext` will be empty for `workflow_run`/`check_run` events with `pull_requests=[]`. Agents that need the PR url can `gh pr list --head <head_sha>` themselves; this matches the existing behaviour after the worker drains pending events (the agent context already runs in a worktree with `gh` available).\n\n## Test plan\n\n- [ ] CI on this PR passes\n- [ ] After merge: open a new failing-test PR on rabbeet/Pulse, expect the cascade comment in the source ticket within ~30s of `workflow_run.completed`\n- [ ] Loop guard still trips on the existing scenario (3 distinct head_shas same issue 6h)\n- [ ] Once smoke confirms, [PUL-143](https://multica.ai/issues/PUL-143) can be flipped from `waiting` \u2192 `deployed`\n",
+        "reactions": {
+          "url": "https://api.github.com/repos/rabbeet/multica/issues/22/reactions",
+          "total_count": 0,
+          "+1": 0,
+          "-1": 0,
+          "laugh": 0,
+          "hooray": 0,
+          "confused": 0,
+          "heart": 0,
+          "rocket": 0,
+          "eyes": 0
+        },
+        "timeline_url": "https://api.github.com/repos/rabbeet/multica/issues/22/timeline",
+        "performed_via_github_app": null,
+        "state_reason": null
+      },
+      "comment": {
+        "url": "https://api.github.com/repos/rabbeet/multica/issues/comments/4469865357",
+        "html_url": "https://github.com/rabbeet/multica/pull/22#issuecomment-4469865357",
+        "issue_url": "https://api.github.com/repos/rabbeet/multica/issues/22",
+        "id": 4469865357,
+        "node_id": "IC_kwDOSWRAxs8AAAABCmy7jQ",
+        "user": {
+          "login": "redacted-user",
+          "id": 161840433,
+          "node_id": "U_kgDOCaV9MQ",
+          "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4",
+          "gravatar_id": "",
+          "url": "https://api.github.com/users/redacted-user",
+          "html_url": "https://github.com/rabbeet",
+          "followers_url": "https://api.github.com/users/rabbeet/followers",
+          "following_url": "https://api.github.com/users/rabbeet/following{/other_user}",
+          "gists_url": "https://api.github.com/users/rabbeet/gists{/gist_id}",
+          "starred_url": "https://api.github.com/users/rabbeet/starred{/owner}{/repo}",
+          "subscriptions_url": "https://api.github.com/users/rabbeet/subscriptions",
+          "organizations_url": "https://api.github.com/users/rabbeet/orgs",
+          "repos_url": "https://api.github.com/users/rabbeet/repos",
+          "events_url": "https://api.github.com/users/rabbeet/events{/privacy}",
+          "received_events_url": "https://api.github.com/users/rabbeet/received_events",
+          "type": "User",
+          "user_view_type": "public",
+          "site_admin": false
+        },
+        "created_at": "2026-05-17T08:14:01Z",
+        "updated_at": "2026-05-17T08:14:01Z",
+        "body": "Closing as redundant \u2014 PR #21 (`fix/cascade-github-empty-pulls-fallback`) already shipped a fix for the same root cause via the worker-side `commits/{sha}/pulls` API lookup (the original Option A from PUL-148 description). Merged 2026-05-17T06:20:02Z, deployed.\n\nI missed it because the multica-bare.git mirror on this host hadn't fetched the new main pointer when I started. Closing this branch rather than rebasing.\n\nMy branch contained one orthogonal improvement worth following up separately if it ever bites: `checkLoopGuard` keyed on `pr_url` could still produce false positives when an issue accumulates 3+ distinct head_shas across multiple PRs in the 6h window. Issue-based loop guard would tighten that \u2014 opening as a follow-up if I see it manifest.",
+        "reactions": {
+          "url": "https://api.github.com/repos/rabbeet/multica/issues/comments/4469865357/reactions",
+          "total_count": 0,
+          "+1": 0,
+          "-1": 0,
+          "laugh": 0,
+          "hooray": 0,
+          "confused": 0,
+          "heart": 0,
+          "rocket": 0,
+          "eyes": 0
+        },
+        "performed_via_github_app": null
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:14:01Z"
+  },
+  {
+    "id": "9551846327",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "opened",
+      "number": 22,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/22",
+        "id": 3696700864,
+        "number": 22,
+        "head": {
+          "ref": "agent-1/pul-148-cascade-adapter-lookup",
+          "sha": "6c0e695305d53d376ca1a6e29a2ed403aa3f5dd2",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "d0d7eaab24e48393fb9e8431e8e23b0dfc5405e0",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:04:24Z"
+  },
+  {
+    "id": "11965542589",
+    "type": "CreateEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "agent-1/pul-148-cascade-adapter-lookup",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/agent-1/pul-148-cascade-adapter-lookup",
+      "master_branch": "main",
+      "description": "The open-source managed agents platform. Turn coding agents into real teammates \u2014 assign tasks, track progress, compound skills.",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T08:03:54Z"
+  },
+  {
+    "id": "9550585813",
+    "type": "PullRequestEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "action": "merged",
+      "number": 21,
+      "pull_request": {
+        "url": "https://api.github.com/repos/rabbeet/multica/pulls/21",
+        "id": 3695400263,
+        "number": 21,
+        "head": {
+          "ref": "fix/cascade-github-empty-pulls-fallback",
+          "sha": "5f79851592716ff781f857c74e0f6f708e3372d5",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "ca91f4dc1ead23b7804b3c300959093492876d74",
+          "repo": {
+            "id": 1231306950,
+            "url": "https://api.github.com/repos/rabbeet/multica",
+            "name": "multica"
+          }
+        }
+      }
+    },
+    "public": true,
+    "created_at": "2026-05-17T06:20:02Z"
+  },
+  {
+    "id": "11963554647",
+    "type": "DeleteEvent",
+    "actor": {
+      "id": 161840433,
+      "login": "redacted-user",
+      "display_login": "redacted-user",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/redacted-user",
+      "avatar_url": "https://avatars.githubusercontent.com/u/0?v=4"
+    },
+    "repo": {
+      "id": 1231306950,
+      "name": "rabbeet/multica",
+      "url": "https://api.github.com/repos/rabbeet/multica"
+    },
+    "payload": {
+      "ref": "fix/cascade-github-empty-pulls-fallback",
+      "ref_type": "branch",
+      "full_ref": "refs/heads/fix/cascade-github-empty-pulls-fallback",
+      "pusher_type": "user"
+    },
+    "public": true,
+    "created_at": "2026-05-17T06:20:04Z"
+  }
+]
