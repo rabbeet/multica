@@ -784,5 +784,21 @@ describe("IssueDetail (shared)", () => {
     expect(container.textContent ?? "").not.toContain(
       "Something went wrong displaying this section.",
     );
+
+    // Pin the happy path: the timeline's leadIcon for this status_changed
+    // entry is the StatusIcon SVG (viewBox 0 0 14 14), NOT the ActorAvatar
+    // fallback. Scope to the timeline root so we don't accidentally pass
+    // on unrelated StatusIcons (sidebar StatusPicker, parent/child issue
+    // chips also use viewBox 0 0 14 14). The timeline root class signature
+    // matches `rootCommentIdsInOrder` above. Without this scoped check,
+    // the guard could regress to `details.to in CONFIG ? null : <StatusIcon>`
+    // and the page-wide SVG count would still be > 0.
+    const timelineRoot = container.querySelector(
+      "div.mt-4.flex.flex-col.gap-3",
+    );
+    expect(timelineRoot).not.toBeNull();
+    expect(
+      timelineRoot!.querySelectorAll('svg[viewBox="0 0 14 14"]').length,
+    ).toBeGreaterThan(0);
   });
 });
