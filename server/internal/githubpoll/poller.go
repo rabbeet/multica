@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -219,7 +221,10 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 		return
 	}
 
-	result, err := p.client.FetchEvents(ctx, repo, cursor.ETag, cursor.LastEventID)
+	// FetchEvents takes the per-event-type cursor map (PUL-201). nil
+	// map on a freshly-loaded never-polled row is fine — client treats
+	// missing keys as 0.
+	result, err := p.client.FetchEvents(ctx, repo, cursor.ETag, cursor.CursorByType)
 	// Record observed rate-limit on every code path that produced a
 	// response. 200, 304, and 403/rate-limit all carry the header;
 	// the client propagates info even on the ErrRateLimited path so
@@ -285,12 +290,22 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 	// (UPDATE … SET last_event_id = NULL), and we want THAT case to
 	// flow normally — not re-seed.
 	//
-	// On firstRun with events present we record the max event id, save
-	// the cursor, and return WITHOUT forwarding anything to the sink:
-	// those events are pre-existing state, not "events that arrived
-	// while we were watching". This implements the contract documented
-	// in migration 080_github_poll_cursor.up.sql:24, which the original
-	// PR2 wiring never honored.
+	// PUL-201 also drives existing post-migration rows through this
+	// branch — the 086 up-migration clears last_polled_at on every
+	// existing row so the new cursor_by_type map is populated from a
+	// fresh /events snapshot, not from an implicit "0 for every type"
+	// that would forward up to a full page of events into the sink.
+	//
+	// On firstRun with events present we record the max event id PER
+	// EVENT TYPE in cursor.CursorByType (not a single scalar — see
+	// PUL-201 issue) and save the cursor WITHOUT forwarding anything
+	// to the sink: those events are pre-existing state, not "events
+	// that arrived while we were watching". We seed across ALL
+	// Event.Type values observed on the page (including types the
+	// classifier later skips, e.g. IssuesEvent, WatchEvent). Leaving
+	// a known-on-page type at the default 0 would cause the next
+	// tick to re-forward every old event of that type once a fresh
+	// one arrives.
 	//
 	// On firstRun with empty events we bump a counter and fall through
 	// to the existing loop, which will Save ETag + LastPolledAt over
@@ -298,6 +313,9 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 	// next tick is not firstRun.
 	if cursor.LastPolledAt.IsZero() {
 		if len(result.Events) > 0 {
+			if cursor.CursorByType == nil {
+				cursor.CursorByType = map[string]int64{}
+			}
 			seeded := 0
 			for _, e := range result.Events {
 				id, idErr := e.NumericID()
@@ -313,8 +331,8 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 					)
 					continue
 				}
-				if id > cursor.LastEventID {
-					cursor.LastEventID = id
+				if id > cursor.CursorByType[e.Type] {
+					cursor.CursorByType[e.Type] = id
 				}
 				seeded++
 			}
@@ -332,7 +350,7 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 			}
 			logger.Info("githubpoll.poller.first_run_seeded",
 				"events_skipped_as_history", seeded,
-				"last_event_id", cursor.LastEventID,
+				"cursor_by_type", formatCursorByType(cursor.CursorByType),
 				"etag", cursor.ETag,
 			)
 			return
@@ -402,10 +420,17 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 			p.cfg.Metrics.IncEvent(repo, evt.EventType)
 		}
 		// Advance cursor regardless of skip/classify: we don't
-		// need to re-see this event next tick.
+		// need to re-see this event next tick. Per-event-type
+		// position (PUL-201) — keeps PR-stream and Push-stream from
+		// stomping on each other.
 		id, idErr := e.NumericID()
-		if idErr == nil && id > cursor.LastEventID {
-			cursor.LastEventID = id
+		if idErr == nil {
+			if cursor.CursorByType == nil {
+				cursor.CursorByType = map[string]int64{}
+			}
+			if id > cursor.CursorByType[e.Type] {
+				cursor.CursorByType[e.Type] = id
+			}
 		}
 	}
 	if result.ETag != "" {
@@ -422,9 +447,34 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 		"events_classified", classifiedCount,
 		"events_skipped", skipCount,
 		"events_schema_mismatch", schemaErrCount,
-		"last_event_id", cursor.LastEventID,
+		"cursor_by_type", formatCursorByType(cursor.CursorByType),
 		"rate_remaining", result.RateRemaining,
 	)
+}
+
+// formatCursorByType renders the per-type cursor map as a compact
+// deterministic string for log lines. Sorted by key so grep diffs are
+// stable across ticks. Replaces the pre-PUL-201 `last_event_id=N`
+// field, which is meaningless under multi-stream cursors.
+func formatCursorByType(m map[string]int64) string {
+	if len(m) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(k)
+		b.WriteByte(':')
+		b.WriteString(strconv.FormatInt(m[k], 10))
+	}
+	return b.String()
 }
 
 // ParseRepos parses the comma-separated MULTICA_GITHUB_POLL_REPOS

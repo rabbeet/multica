@@ -60,6 +60,10 @@ func TestCursorStore_SaveLoadRoundTrip(t *testing.T) {
 		LastEventID:  12345,
 		LastPolledAt: now,
 		ETag:         "W/\"abcdef\"",
+		CursorByType: map[string]int64{
+			"PullRequestEvent": 9648929307,
+			"PushEvent":        12078860926,
+		},
 	}
 	if err := s.Save(context.Background(), want); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -76,6 +80,54 @@ func TestCursorStore_SaveLoadRoundTrip(t *testing.T) {
 	}
 	if got.ETag != want.ETag {
 		t.Errorf("ETag = %q, want %q", got.ETag, want.ETag)
+	}
+	if len(got.CursorByType) != 2 ||
+		got.CursorByType["PullRequestEvent"] != 9648929307 ||
+		got.CursorByType["PushEvent"] != 12078860926 {
+		t.Errorf("CursorByType = %v, want PR:9648929307 + Push:12078860926",
+			got.CursorByType)
+	}
+}
+
+func TestCursorStore_SaveLoadCursorByType_Defaults(t *testing.T) {
+	// Save with nil CursorByType should write '{}' (the column DEFAULT)
+	// and Load should return nil or empty map — both equivalent.
+	pool := testDBPool(t)
+	s := NewCursorStore(pool)
+	if err := s.Save(context.Background(), Cursor{Repo: "test/defaults"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := s.Load(context.Background(), "test/defaults")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.CursorByType) != 0 {
+		t.Errorf("CursorByType = %v, want empty/nil", got.CursorByType)
+	}
+}
+
+func TestCursorStore_Load_CorruptedCursorByType_Error(t *testing.T) {
+	// An operator (or a future code path that writes garbage) might
+	// leave the JSONB in a shape json.Unmarshal cannot coerce into
+	// map[string]int64 (here: a string value where int64 is expected).
+	// We want a hard error with repo context, NOT a silent empty map
+	// — empty map behaves like the pre-PUL-201 single-scalar cursor
+	// reset to 0, which re-introduces the pr_merged blindness this
+	// fix is here to remove.
+	pool := testDBPool(t)
+	s := NewCursorStore(pool)
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO github_poll_cursor (repo, cursor_by_type)
+		VALUES ($1, $2::jsonb)
+		ON CONFLICT (repo) DO UPDATE
+			SET cursor_by_type = EXCLUDED.cursor_by_type
+	`, "test/corrupted", `{"PushEvent": "not-a-number"}`)
+	if err != nil {
+		t.Fatalf("seed corrupted row: %v", err)
+	}
+	_, err = s.Load(context.Background(), "test/corrupted")
+	if err == nil {
+		t.Fatalf("Load on corrupted row returned nil error; want hard error")
 	}
 }
 
@@ -140,13 +192,32 @@ func TestMemCursorStore(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
-	want := Cursor{Repo: "test/mem", LastEventID: 100, LastPolledAt: now, ETag: "v1"}
+	want := Cursor{
+		Repo:         "test/mem",
+		LastEventID:  100,
+		LastPolledAt: now,
+		ETag:         "v1",
+		CursorByType: map[string]int64{"PullRequestEvent": 9648929307, "PushEvent": 12078860926},
+	}
 	if err := m.Save(ctx, want); err != nil {
 		t.Fatalf("mem Save: %v", err)
 	}
 	got, _ = m.Load(ctx, "test/mem")
 	if got.LastEventID != 100 || got.ETag != "v1" {
 		t.Errorf("mem round-trip: got %+v, want %+v", got, want)
+	}
+	if got.CursorByType["PullRequestEvent"] != 9648929307 ||
+		got.CursorByType["PushEvent"] != 12078860926 {
+		t.Errorf("mem CursorByType round-trip: got %v", got.CursorByType)
+	}
+	// Defensive copy: mutating the returned map must not corrupt the
+	// stored row. Mirrors what production CursorStore gets for free
+	// from its JSON round-trip.
+	got.CursorByType["PullRequestEvent"] = 1
+	again, _ := m.Load(ctx, "test/mem")
+	if again.CursorByType["PullRequestEvent"] != 9648929307 {
+		t.Errorf("mem store leaked map mutation: stored value changed to %d",
+			again.CursorByType["PullRequestEvent"])
 	}
 
 	if err := m.Save(ctx, Cursor{}); err == nil {

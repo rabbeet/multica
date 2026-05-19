@@ -119,15 +119,28 @@ func (c *Client) WithPagesLimit(n int) *Client {
 // headers. Returns ErrNotModified on 304, ErrRateLimited{ResetAt:…}
 // on 403+remaining=0, and a plain error otherwise.
 //
-// Events are filtered with id > sinceID and returned oldest-first
-// (caller-facing chronological order). Pagination walks while the
-// last item on a page has id > sinceID; capped at pagesLimit pages
-// (configured via WithPagesLimit, default 5).
+// Events are filtered per-type (id > sinceByType[Event.Type]) and
+// returned oldest-first (caller-facing chronological order).
+// sinceByType is keyed by GitHub's Event.Type string; an unknown
+// type or a nil map yields 0 — every event of that type passes.
 //
-// The (etagPrev, sinceID) pair is the per-repo cursor state. Pass
-// the empty string + 0 on a first poll — server returns 200 with
+// Pagination semantics: walk while at least one event on the page
+// survived per-type filtering (i.e. was strictly newer than its
+// type's cursor). Stop on (a) an entirely-stale page, (b) an empty
+// page, or (c) the pagesLimit cap (default 5).
+//
+// The "stop on first stale event" shortcut used before PUL-201 does
+// not generalize to multi-stream cursors: GitHub orders events by
+// created_at, not by numeric id, and PR-shaped events (~9.6e9 id
+// range) interleave with Push / Create / Delete / WorkflowRun
+// events (~12e9 range). A single old PR-event on a page no longer
+// implies the rest of the page is stale for its type. We scan the
+// whole page and only stop when no event passed filtering.
+//
+// (etagPrev, sinceByType) is the per-repo cursor state. Pass empty
+// string + nil/empty map on a first poll — server returns 200 with
 // full body.
-func (c *Client) FetchEvents(ctx context.Context, repo, etagPrev string, sinceID int64) (FetchResult, error) {
+func (c *Client) FetchEvents(ctx context.Context, repo, etagPrev string, sinceByType map[string]int64) (FetchResult, error) {
 	token, _, err := c.tokenSource.Token(ctx)
 	if err != nil {
 		return FetchResult{}, fmt.Errorf("githubpoll.client: token: %w", err)
@@ -164,7 +177,7 @@ func (c *Client) FetchEvents(ctx context.Context, repo, etagPrev string, sinceID
 		}
 		rateRemaining, rateLimit = info.remaining, info.limit
 
-		var stop bool
+		passed := 0
 		for _, e := range batch {
 			id, err := e.NumericID()
 			if err != nil {
@@ -174,16 +187,18 @@ func (c *Client) FetchEvents(ctx context.Context, repo, etagPrev string, sinceID
 				// which is the place to surface it as a metric.
 				continue
 			}
-			if id <= sinceID {
-				stop = true
+			if id <= sinceByType[e.Type] {
 				continue
 			}
 			collected = append(collected, e)
-		}
-		if stop {
-			break
+			passed++
 		}
 		if len(batch) == 0 {
+			break
+		}
+		if passed == 0 {
+			// Every event on this page was stale (or schema-mismatched)
+			// for its type. Older pages will be even staler — done.
 			break
 		}
 	}
