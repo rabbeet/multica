@@ -2,12 +2,16 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/cascade"
 )
@@ -134,4 +138,92 @@ func (h *Handler) ListCascades(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// CascadeRetriggerResponse is one row from cascade_retrigger as
+// surfaced by GET /api/issues/:id/cascade — the audit log behind
+// `multica issue cascade <id>` (PUL-198). Field shape matches the
+// CLI's table renderer; null DB columns become JSON nulls so the
+// CLI can decide whether to render "—" or the value.
+type CascadeRetriggerResponse struct {
+	ID           int64   `json:"id"`
+	EventID      string  `json:"event_id"`
+	EventType    string  `json:"event_type"`
+	PRURL        string  `json:"pr_url"`
+	PRNumber     int32   `json:"pr_number"`
+	HeadSHA      string  `json:"head_sha"`
+	FiredAt      string  `json:"fired_at"`
+	ProcessedAt  *string `json:"processed_at"`
+	Action       *string `json:"action"`
+	ActionReason *string `json:"action_reason"`
+}
+
+// ListIssueCascade returns cascade_retrigger audit rows for an issue,
+// newest first. Backs `multica issue cascade <id>` — operators reach
+// for this when "cascade did not spawn for this PR" and they need to
+// know whether the row was loop-guarded, scope-filtered, or queued
+// behind an active run, plus the deploy-flip outcome (PUL-194) carried
+// in action_reason. See PUL-198.
+func (h *Handler) ListIssueCascade(w http.ResponseWriter, r *http.Request) {
+	issue, ok := h.loadIssueForUser(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+
+	rows, err := h.DB.Query(r.Context(), `
+SELECT id, event_id, event_type, pr_url, pr_number, head_sha,
+       fired_at, processed_at, action, action_reason
+FROM cascade_retrigger
+WHERE issue_id = $1
+ORDER BY fired_at DESC, id DESC`,
+		issue.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list cascade events")
+		return
+	}
+	defer rows.Close()
+
+	resp := make([]CascadeRetriggerResponse, 0, 16)
+	for rows.Next() {
+		var (
+			row          CascadeRetriggerResponse
+			eventID      pgtype.UUID
+			fired        pgtype.Timestamptz
+			processed    pgtype.Timestamptz
+			action       pgtype.Text
+			actionReason pgtype.Text
+		)
+		if err := rows.Scan(
+			&row.ID, &eventID, &row.EventType, &row.PRURL, &row.PRNumber, &row.HeadSHA,
+			&fired, &processed, &action, &actionReason,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read cascade row")
+			return
+		}
+		if eventID.Valid {
+			row.EventID = uuid.UUID(eventID.Bytes).String()
+		}
+		if fired.Valid {
+			row.FiredAt = fired.Time.Format(time.RFC3339)
+		}
+		if processed.Valid {
+			s := processed.Time.Format(time.RFC3339)
+			row.ProcessedAt = &s
+		}
+		if action.Valid {
+			s := action.String
+			row.Action = &s
+		}
+		if actionReason.Valid {
+			s := actionReason.String
+			row.ActionReason = &s
+		}
+		resp = append(resp, row)
+	}
+	if err := rows.Err(); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to iterate cascade rows")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }

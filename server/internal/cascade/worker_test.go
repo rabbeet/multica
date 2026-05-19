@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -162,11 +163,14 @@ func TestWorker_HappyPath_SpawnsAndMarks(t *testing.T) {
 		t.Errorf("spawned wrong issue: got %v, want %v", sp.lastIssue, issueID)
 	}
 
-	// Row must be marked processed with action='spawn'.
+	// Row must be marked processed with action='spawn' and a non-empty
+	// action_reason (PUL-198). For a non-pr_merged event there is no
+	// deploy_flip prefix, so the bare "spawned" sentinel is expected.
 	var action string
+	var reason *string
 	var processedAt *time.Time
 	if err := pool.QueryRow(context.Background(),
-		`SELECT action, processed_at FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &processedAt); err != nil {
+		`SELECT action, action_reason, processed_at FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &reason, &processedAt); err != nil {
 		t.Fatalf("read back row: %v", err)
 	}
 	if action != "spawn" {
@@ -174,6 +178,13 @@ func TestWorker_HappyPath_SpawnsAndMarks(t *testing.T) {
 	}
 	if processedAt == nil {
 		t.Errorf("processed_at not set")
+	}
+	if reason == nil || *reason != "spawned" {
+		got := "<nil>"
+		if reason != nil {
+			got = *reason
+		}
+		t.Errorf("action_reason = %q, want %q", got, "spawned")
 	}
 }
 
@@ -204,14 +215,23 @@ func TestWorker_ActiveRun_QueuesPending(t *testing.T) {
 		t.Fatalf("expected pending row: %v", err)
 	}
 
-	// Action on the row must be 'queued_pending'.
+	// Action on the row must be 'queued_pending' with the PUL-198
+	// reason describing why the spawn was deferred.
 	var action string
+	var reason *string
 	if err := pool.QueryRow(context.Background(),
-		`SELECT action FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action); err != nil {
+		`SELECT action, action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &reason); err != nil {
 		t.Fatalf("read action: %v", err)
 	}
 	if action != "queued_pending" {
 		t.Errorf("action = %q, want queued_pending", action)
+	}
+	if reason == nil || *reason != "queued_pending: active run present" {
+		got := "<nil>"
+		if reason != nil {
+			got = *reason
+		}
+		t.Errorf("action_reason = %q, want %q", got, "queued_pending: active run present")
 	}
 }
 
@@ -255,10 +275,21 @@ func TestWorker_LoopGuard_TripsAfterThreshold(t *testing.T) {
 	}
 
 	var action string
+	var reason *string
 	_ = pool.QueryRow(context.Background(),
-		`SELECT action FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action)
+		`SELECT action, action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &reason)
 	if action != "loop_guard_skip" {
 		t.Errorf("action = %q, want loop_guard_skip", action)
+	}
+	// PUL-198: action_reason carries the loop-guard count + window. The
+	// pre-seeded 3 distinct head_shas trip the guard; the 4th retrigger
+	// is the one being marked.
+	if reason == nil || !strings.Contains(*reason, "loop_guard: 3 distinct head_shas") {
+		got := "<nil>"
+		if reason != nil {
+			got = *reason
+		}
+		t.Errorf("action_reason = %q, want loop_guard count description", got)
 	}
 }
 
@@ -334,6 +365,20 @@ func TestWorker_SpawnGatedMarksRowSkipped(t *testing.T) {
 		}
 		t.Errorf("action = %q, want scope_filter_skip", got)
 	}
+
+	// PUL-198: gated reason must wrap the Spawner's error text so the
+	// operator sees "no assignee" / "agent archived" / etc. on the
+	// audit line.
+	var reason *string
+	_ = pool.QueryRow(context.Background(),
+		`SELECT action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&reason)
+	if reason == nil || !strings.Contains(*reason, "no assignee") {
+		got := "<nil>"
+		if reason != nil {
+			got = *reason
+		}
+		t.Errorf("action_reason = %q, want to contain spawner error text", got)
+	}
 }
 
 func TestWorker_NoIssueIDIsScopeSkip(t *testing.T) {
@@ -366,10 +411,20 @@ func TestWorker_NoIssueIDIsScopeSkip(t *testing.T) {
 		t.Errorf("expected no spawn for NULL issue_id, got %d", sp.spawnCalls.Load())
 	}
 	var action string
+	var reason *string
 	_ = pool.QueryRow(context.Background(),
-		`SELECT action FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action)
+		`SELECT action, action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &reason)
 	if action != "scope_filter_skip" {
 		t.Errorf("action = %q, want scope_filter_skip", action)
+	}
+	// PUL-198: nil-loader path records its own scope_filter reason
+	// (distinct from the no-identifier and issue-not-found branches).
+	if reason == nil || !strings.Contains(*reason, "no IssueLoader") {
+		got := "<nil>"
+		if reason != nil {
+			got = *reason
+		}
+		t.Errorf("action_reason = %q, want to mention IssueLoader", got)
 	}
 }
 
@@ -697,6 +752,62 @@ func TestWorker_AutoFlipsToDeployedOnPRMerged(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("history rows = %d, want 1", count)
+	}
+}
+
+// TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix is the
+// PUL-198 prefix guard: when a pr_merged event flips status AND also
+// spawns, the cascade_retrigger row's action_reason must encode BOTH
+// outcomes on one line so the operator sees them through a single
+// `multica issue cascade` row. The flip itself is asserted by
+// TestWorker_AutoFlipsToDeployedOnPRMerged — this one pins the audit
+// prefix specifically.
+func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix(t *testing.T) {
+	pool := workerTestDBPool(t)
+	if pool == nil {
+		return
+	}
+	ws, cleanup := workerMakeWorkspaceAndUser(t, pool)
+	defer cleanup()
+	queries := db.New(pool)
+
+	// Single-PR issue, status='todo' so DecideDeployFlip returns true.
+	issueID := insertIssueForDeployFlip(t, pool, ws, 19822, "todo", "")
+	rowID := insertRetrigger(t, pool, issueID,
+		"https://github.com/o/r/pull/198", "sha-pul198", "pr_merged")
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+	defer pool.Exec(context.Background(),
+		`DELETE FROM issue_status_history WHERE issue_id = $1`, issueID)
+
+	sp := &fakeSpawner{} // no active run → spawn path
+	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 1 {
+		t.Fatalf("expected 1 spawn, got %d", sp.spawnCalls.Load())
+	}
+
+	var action string
+	var reason *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action, action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &reason); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if action != "spawn" {
+		t.Errorf("action = %q, want spawn", action)
+	}
+	got := ""
+	if reason != nil {
+		got = *reason
+	}
+	// Prefix shape is "deploy_flip=flipped status_to=deployed; spawned"
+	// — keep both halves visible to the operator.
+	if !strings.HasPrefix(got, "deploy_flip=flipped") {
+		t.Errorf("action_reason = %q, want to start with deploy_flip=flipped", got)
+	}
+	if !strings.Contains(got, "spawned") {
+		t.Errorf("action_reason = %q, want to contain spawn outcome", got)
 	}
 }
 
