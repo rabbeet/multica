@@ -297,6 +297,7 @@ func init() {
 	issueUpdateCmd.Flags().String("project", "", "Project ID")
 	issueUpdateCmd.Flags().String("due-date", "", "New due date (RFC3339 format)")
 	issueUpdateCmd.Flags().String("parent", "", "Parent issue ID (use --parent \"\" to clear)")
+	issueUpdateCmd.Flags().String("cascade-plan-url", "", "Self-published plan URL that gates cascade spawn (use --cascade-plan-url \"\" to clear)")
 	issueUpdateCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// issue status
@@ -488,6 +489,13 @@ func runIssueGet(cmd *cobra.Command, args []string) error {
 			strVal(issue, "description"),
 		}}
 		cli.PrintTable(os.Stdout, headers, rows)
+		// PUL-198 Part 2: surface cascade_plan_url as a footer line only
+		// when set — the field is sparse and noisy as a permanent column,
+		// but operators reading `issue get <id>` while debugging cascade
+		// shouldn't have to switch to --output json to see it.
+		if planURL := strVal(issue, "cascade_plan_url"); planURL != "" {
+			fmt.Fprintf(os.Stdout, "\ncascade_plan_url: %s\n", planURL)
+		}
 		return nil
 	}
 
@@ -685,6 +693,14 @@ func runIssueUpdate(cmd *cobra.Command, args []string) error {
 			body["parent_issue_id"] = nil
 		} else {
 			body["parent_issue_id"] = v
+		}
+	}
+	if cmd.Flags().Changed("cascade-plan-url") {
+		v, _ := cmd.Flags().GetString("cascade-plan-url")
+		if v == "" {
+			body["cascade_plan_url"] = nil
+		} else {
+			body["cascade_plan_url"] = v
 		}
 	}
 
