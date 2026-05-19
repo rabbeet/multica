@@ -55,6 +55,7 @@ UPDATE issue SET
     due_date = sqlc.narg('due_date'),
     parent_issue_id = sqlc.narg('parent_issue_id'),
     project_id = sqlc.narg('project_id'),
+    cascade_plan_url = sqlc.narg('cascade_plan_url'),
     updated_at = now()
 WHERE id = $1
 RETURNING *;

@@ -136,7 +136,7 @@ INSERT INTO issue (
     parent_issue_id, position, due_date, number, project_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-) RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress
+) RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url
 `
 
 type CreateIssueParams struct {
@@ -202,6 +202,7 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
@@ -215,7 +216,7 @@ INSERT INTO issue (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
     $15, $16
-) RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress
+) RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url
 `
 
 type CreateIssueWithOriginParams struct {
@@ -285,6 +286,7 @@ func (q *Queries) CreateIssueWithOrigin(ctx context.Context, arg CreateIssueWith
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
@@ -299,7 +301,7 @@ func (q *Queries) DeleteIssue(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress FROM issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url FROM issue
 WHERE id = $1
 `
 
@@ -334,12 +336,13 @@ func (q *Queries) GetIssue(ctx context.Context, id pgtype.UUID) (Issue, error) {
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
 
 const getIssueByNumber = `-- name: GetIssueByNumber :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress FROM issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url FROM issue
 WHERE workspace_id = $1 AND number = $2
 `
 
@@ -379,12 +382,13 @@ func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberPara
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
 
 const getIssueByOrigin = `-- name: GetIssueByOrigin :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress FROM issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url FROM issue
 WHERE workspace_id = $1
   AND origin_type = $2
   AND origin_id = $3
@@ -433,12 +437,13 @@ func (q *Queries) GetIssueByOrigin(ctx context.Context, arg GetIssueByOriginPara
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
 
 const getIssueForUpdate = `-- name: GetIssueForUpdate :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress FROM issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url FROM issue
 WHERE id = $1 AND workspace_id = $2
 FOR UPDATE
 `
@@ -483,12 +488,13 @@ func (q *Queries) GetIssueForUpdate(ctx context.Context, arg GetIssueForUpdatePa
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
 
 const getIssueInWorkspace = `-- name: GetIssueInWorkspace :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress FROM issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url FROM issue
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -528,12 +534,13 @@ func (q *Queries) GetIssueInWorkspace(ctx context.Context, arg GetIssueInWorkspa
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
 
 const listChildIssues = `-- name: ListChildIssues :many
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress FROM issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url FROM issue
 WHERE parent_issue_id = $1
 ORDER BY position ASC, created_at DESC
 `
@@ -575,6 +582,7 @@ func (q *Queries) ListChildIssues(ctx context.Context, parentIssueID pgtype.UUID
 			&i.CascadeStartedAt,
 			&i.CascadeLastEventAt,
 			&i.CascadeProgress,
+			&i.CascadePlanUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -817,23 +825,25 @@ UPDATE issue SET
     due_date = $9,
     parent_issue_id = $10,
     project_id = $11,
+    cascade_plan_url = $12,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url
 `
 
 type UpdateIssueParams struct {
-	ID            pgtype.UUID        `json:"id"`
-	Title         pgtype.Text        `json:"title"`
-	Description   pgtype.Text        `json:"description"`
-	Status        pgtype.Text        `json:"status"`
-	Priority      pgtype.Text        `json:"priority"`
-	AssigneeType  pgtype.Text        `json:"assignee_type"`
-	AssigneeID    pgtype.UUID        `json:"assignee_id"`
-	Position      pgtype.Float8      `json:"position"`
-	DueDate       pgtype.Timestamptz `json:"due_date"`
-	ParentIssueID pgtype.UUID        `json:"parent_issue_id"`
-	ProjectID     pgtype.UUID        `json:"project_id"`
+	ID             pgtype.UUID        `json:"id"`
+	Title          pgtype.Text        `json:"title"`
+	Description    pgtype.Text        `json:"description"`
+	Status         pgtype.Text        `json:"status"`
+	Priority       pgtype.Text        `json:"priority"`
+	AssigneeType   pgtype.Text        `json:"assignee_type"`
+	AssigneeID     pgtype.UUID        `json:"assignee_id"`
+	Position       pgtype.Float8      `json:"position"`
+	DueDate        pgtype.Timestamptz `json:"due_date"`
+	ParentIssueID  pgtype.UUID        `json:"parent_issue_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	CascadePlanUrl pgtype.Text        `json:"cascade_plan_url"`
 }
 
 func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error) {
@@ -849,6 +859,7 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		arg.DueDate,
 		arg.ParentIssueID,
 		arg.ProjectID,
+		arg.CascadePlanUrl,
 	)
 	var i Issue
 	err := row.Scan(
@@ -879,6 +890,7 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
@@ -888,7 +900,7 @@ UPDATE issue SET
     status = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url
 `
 
 type UpdateIssueStatusParams struct {
@@ -927,6 +939,7 @@ func (q *Queries) UpdateIssueStatus(ctx context.Context, arg UpdateIssueStatusPa
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
@@ -937,7 +950,7 @@ UPDATE issue SET
     deployed_at = COALESCE(deployed_at, now()),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress, cascade_plan_url
 `
 
 // Atomic transition to 'deployed' that also stamps the lifecycle marker
@@ -977,6 +990,7 @@ func (q *Queries) UpdateIssueStatusToDeployed(ctx context.Context, id pgtype.UUI
 		&i.CascadeStartedAt,
 		&i.CascadeLastEventAt,
 		&i.CascadeProgress,
+		&i.CascadePlanUrl,
 	)
 	return i, err
 }
