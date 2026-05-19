@@ -1,3 +1,13 @@
+// Package github used to host the inbound GitHub webhook adapter
+// (PUL-102 / PR3 onwards). PUL-166 replaced that ingress with
+// outbound polling; PR5 of that issue deleted the webhook adapter
+// from this package, leaving only the GitHub REST API helpers
+// (HTTPResolver, PRRef, PRResolver) that the polling classifier
+// uses for the commit→PRs fallback.
+//
+// TODO(post-PR5): rename this package to internal/githubapi/. The
+// import path is the only blocker for moving it cleanly; the code
+// is no longer "webhooks"-specific.
 package github
 
 import (
@@ -11,6 +21,27 @@ import (
 	"strings"
 	"time"
 )
+
+// PRRef is the minimal PR shape that resolver consumers
+// (internal/githubpoll classifier, formerly the webhook adapter)
+// need. Mirrors the fields workflow_run / check_run normally carry
+// inline when GitHub populates pull_requests. PUL-166 PR5 moved
+// this type here from the deleted source.go.
+type PRRef struct {
+	Number  int
+	HTMLURL string
+	Title   string
+	Ref     string // head ref / branch name
+}
+
+// PRResolver resolves the set of PRs that a commit SHA belongs to.
+// Implemented in production by HTTPResolver (GitHub REST API);
+// tests substitute a fake. Returning an empty slice means "no PRs
+// match this SHA" (e.g. push on the default branch) — distinct
+// from an error, which means "lookup failed, try again later".
+type PRResolver interface {
+	LookupPRsByCommit(ctx context.Context, repoFullName, headSHA string) ([]PRRef, error)
+}
 
 // defaultAPIBaseURL is the public GitHub REST endpoint. Overridable
 // on HTTPResolver for tests (httptest.Server) and self-hosted GHES.

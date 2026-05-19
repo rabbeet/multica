@@ -22,10 +22,12 @@ var ErrSchemaMismatch = errors.New("webhooks: payload schema mismatch")
 var ErrUnsupportedEvent = errors.New("webhooks: unsupported event")
 
 // Source is the per-vendor adapter contract. Every webhook source
-// (GitHub, Linear, Slack, GitLab, …) implements this interface and
-// registers a single instance with the Router. PR2 ships stubs for the
-// four planned sources; PR3 replaces GitHubSource with the real
-// implementation.
+// (Linear, Slack, GitLab, …) implements this interface and registers
+// a single instance with the Router. PR2 of PUL-102 shipped stubs for
+// four planned sources; PUL-166 PR5 removed the GitHub source after
+// the ingress moved to outbound polling. Linear / Slack / GitLab
+// remain registered as placeholder stubs until a real adapter ships
+// for each.
 type Source interface {
 	// Name returns the source identifier used in the URL path:
 	// /webhooks/<name>. Lowercase, no slashes. Must be unique across

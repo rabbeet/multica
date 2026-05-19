@@ -30,19 +30,19 @@ func envEnabled() bool {
 
 // MountOptions carries the dependencies the webhooks subsystem needs
 // when wired. Kept as a struct so callers can leave optional fields
-// nil — e.g. tests skip the Store, the GitHub source is only
-// registered when its secret env vars are present.
+// nil — e.g. tests skip the Store.
+//
+// PUL-166 PR5: dropped GitHubSource. The GitHub ingress moved to
+// outbound polling (internal/githubpoll); the inbound adapter is
+// gone. The generic router stays so future Linear / Slack / GitLab
+// sources plug in here — until then, the registered stubs all
+// return 204 on every payload.
 type MountOptions struct {
 	// Store, when non-nil, enables persistence — router calls
 	// Insert after successful Normalize. Without a Store the router
-	// runs in PR2-skeleton mode (202 only).
+	// runs in skeleton mode (202 only). Stays available for the
+	// future non-GitHub source adapters.
 	Store EventStore
-
-	// GitHubSource, when non-nil, replaces the GitHub stub. Lets
-	// cmd/server wire the real adapter only when its secret env
-	// vars are configured; dev boxes without secrets fall back to
-	// the stub which returns 204 on every payload.
-	GitHubSource Source
 }
 
 // MountFromEnv reads the feature flag and, when enabled, constructs a
@@ -52,9 +52,8 @@ type MountOptions struct {
 // flag is off — the route literally does not exist on the server.
 //
 // This is the single integration point cmd/server/router.go uses.
-// PR3 adds the Store + GitHubSource parameters; PR2 callers without
-// dependencies pass MountOptions{} and the router still works in
-// stub-only mode for staging smoke tests.
+// PUL-166 PR5 removed GitHubSource wiring; only stubs remain
+// registered for the placeholder vendors.
 func MountFromEnv(parent chi.Router, opts MountOptions, logger *slog.Logger) *Router {
 	if !envEnabled() {
 		return nil
@@ -62,11 +61,6 @@ func MountFromEnv(parent chi.Router, opts MountOptions, logger *slog.Logger) *Ro
 	r := NewRouter(logger)
 	if opts.Store != nil {
 		r.WithStore(opts.Store)
-	}
-	if opts.GitHubSource != nil {
-		r.Register(opts.GitHubSource)
-	} else {
-		r.Register(GitHubStub())
 	}
 	r.Register(LinearStub())
 	r.Register(SlackStub())
