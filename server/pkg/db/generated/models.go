@@ -163,18 +163,19 @@ type CascadePendingEvent struct {
 }
 
 type CascadeRetrigger struct {
-	ID          int64              `json:"id"`
-	EventID     pgtype.UUID        `json:"event_id"`
-	IssueID     pgtype.UUID        `json:"issue_id"`
-	PrUrl       string             `json:"pr_url"`
-	PrNumber    int32              `json:"pr_number"`
-	HeadSha     string             `json:"head_sha"`
-	EventType   string             `json:"event_type"`
-	FiredAt     pgtype.Timestamptz `json:"fired_at"`
-	ProcessedAt pgtype.Timestamptz `json:"processed_at"`
-	Action      pgtype.Text        `json:"action"`
-	PrTitle     pgtype.Text        `json:"pr_title"`
-	Branch      pgtype.Text        `json:"branch"`
+	ID           int64              `json:"id"`
+	EventID      pgtype.UUID        `json:"event_id"`
+	IssueID      pgtype.UUID        `json:"issue_id"`
+	PrUrl        string             `json:"pr_url"`
+	PrNumber     int32              `json:"pr_number"`
+	HeadSha      string             `json:"head_sha"`
+	EventType    string             `json:"event_type"`
+	FiredAt      pgtype.Timestamptz `json:"fired_at"`
+	ProcessedAt  pgtype.Timestamptz `json:"processed_at"`
+	Action       pgtype.Text        `json:"action"`
+	PrTitle      pgtype.Text        `json:"pr_title"`
+	Branch       pgtype.Text        `json:"branch"`
+	ActionReason pgtype.Text        `json:"action_reason"`
 }
 
 type ChatMessage struct {
@@ -310,6 +311,7 @@ type Issue struct {
 	CascadeStartedAt   pgtype.Timestamptz `json:"cascade_started_at"`
 	CascadeLastEventAt pgtype.Timestamptz `json:"cascade_last_event_at"`
 	CascadeProgress    []byte             `json:"cascade_progress"`
+	CascadePlanUrl     pgtype.Text        `json:"cascade_plan_url"`
 }
 
 type IssueChildProgressOutbox struct {

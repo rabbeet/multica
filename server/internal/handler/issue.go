@@ -44,6 +44,11 @@ type IssueResponse struct {
 	DueDate            *string                 `json:"due_date"`
 	CreatedAt          string                  `json:"created_at"`
 	UpdatedAt          string                  `json:"updated_at"`
+	// PUL-198 Part 2: self-published plan URL used by the cascade worker
+	// as a spawn gate. Pointer + omitempty so payloads on issues that
+	// never set the field stay byte-identical (no consumer touching
+	// IssueResponse.CascadePlanURL today).
+	CascadePlanURL     *string                 `json:"cascade_plan_url,omitempty"`
 	Reactions          []IssueReactionResponse `json:"reactions,omitempty"`
 	Attachments        []AttachmentResponse    `json:"attachments,omitempty"`
 	// Labels are bulk-attached by list/detail endpoints so the client can render
@@ -58,24 +63,25 @@ type IssueResponse struct {
 func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:            uuidToString(i.ID),
-		WorkspaceID:   uuidToString(i.WorkspaceID),
-		Number:        i.Number,
-		Identifier:    identifier,
-		Title:         i.Title,
-		Description:   textToPtr(i.Description),
-		Status:        i.Status,
-		Priority:      i.Priority,
-		AssigneeType:  textToPtr(i.AssigneeType),
-		AssigneeID:    uuidToPtr(i.AssigneeID),
-		CreatorType:   i.CreatorType,
-		CreatorID:     uuidToString(i.CreatorID),
-		ParentIssueID: uuidToPtr(i.ParentIssueID),
-		ProjectID:     uuidToPtr(i.ProjectID),
-		Position:      i.Position,
-		DueDate:       timestampToPtr(i.DueDate),
-		CreatedAt:     timestampToString(i.CreatedAt),
-		UpdatedAt:     timestampToString(i.UpdatedAt),
+		ID:             uuidToString(i.ID),
+		WorkspaceID:    uuidToString(i.WorkspaceID),
+		Number:         i.Number,
+		Identifier:     identifier,
+		Title:          i.Title,
+		Description:    textToPtr(i.Description),
+		Status:         i.Status,
+		Priority:       i.Priority,
+		AssigneeType:   textToPtr(i.AssigneeType),
+		AssigneeID:     uuidToPtr(i.AssigneeID),
+		CreatorType:    i.CreatorType,
+		CreatorID:      uuidToString(i.CreatorID),
+		ParentIssueID:  uuidToPtr(i.ParentIssueID),
+		ProjectID:      uuidToPtr(i.ProjectID),
+		Position:       i.Position,
+		DueDate:        timestampToPtr(i.DueDate),
+		CreatedAt:      timestampToString(i.CreatedAt),
+		UpdatedAt:      timestampToString(i.UpdatedAt),
+		CascadePlanURL: textToPtr(i.CascadePlanUrl),
 	}
 }
 
@@ -1306,6 +1312,11 @@ type UpdateIssueRequest struct {
 	DueDate            *string  `json:"due_date"`
 	ParentIssueID      *string  `json:"parent_issue_id"`
 	ProjectID          *string  `json:"project_id"`
+	// PUL-198 Part 2: write-side counterpart of IssueResponse.CascadePlanURL.
+	// Field-presence is detected via the rawFields map (json.RawMessage) the
+	// way other nullable fields are: missing key = preserve, key with null
+	// = clear, key with string = set.
+	CascadePlanURL     *string  `json:"cascade_plan_url"`
 }
 
 func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
@@ -1336,12 +1347,13 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// Pre-fill nullable fields (bare sqlc.narg) with current values
 	params := db.UpdateIssueParams{
-		ID:            prevIssue.ID,
-		AssigneeType:  prevIssue.AssigneeType,
-		AssigneeID:    prevIssue.AssigneeID,
-		DueDate:       prevIssue.DueDate,
-		ParentIssueID: prevIssue.ParentIssueID,
-		ProjectID:     prevIssue.ProjectID,
+		ID:             prevIssue.ID,
+		AssigneeType:   prevIssue.AssigneeType,
+		AssigneeID:     prevIssue.AssigneeID,
+		DueDate:        prevIssue.DueDate,
+		ParentIssueID:  prevIssue.ParentIssueID,
+		ProjectID:      prevIssue.ProjectID,
+		CascadePlanUrl: prevIssue.CascadePlanUrl,
 	}
 
 	// COALESCE fields — only set when explicitly provided
@@ -1439,6 +1451,13 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			params.ProjectID = projectUUID
 		} else {
 			params.ProjectID = pgtype.UUID{Valid: false}
+		}
+	}
+	if _, ok := rawFields["cascade_plan_url"]; ok {
+		if req.CascadePlanURL != nil {
+			params.CascadePlanUrl = pgtype.Text{String: *req.CascadePlanURL, Valid: true}
+		} else {
+			params.CascadePlanUrl = pgtype.Text{Valid: false} // explicit null = clear
 		}
 	}
 

@@ -99,12 +99,21 @@ var ErrSpawnGated = errors.New("cascade: spawn gated, mark row skipped")
 // TriggerContext records why a run was spawned. Persisted into the
 // cascade_pending_event JSONB column when the event is queued; read
 // back by the drain hook so the next run still knows what woke it.
+//
+// PUL-198 Part 2: CascadePlanURL carries issue.cascade_plan_url (the
+// self-publishing primitive set by /publish-plan after pushing a plan
+// to plans-repo). The synth-comment payload serialises TriggerContext
+// verbatim via json.Marshal, so consuming skills (/plan-and-implement
+// etc.) can read cascade_plan_url to locate the multi-PR plan
+// governing the agent's wake-up. Omitempty so existing payloads stay
+// byte-identical when the field is unset.
 type TriggerContext struct {
-	EventID   uuid.UUID `json:"event_id"`
-	EventType string    `json:"event_type"`
-	PRURL     string    `json:"pr_url,omitempty"`
-	PRNumber  int32     `json:"pr_number,omitempty"`
-	HeadSHA   string    `json:"head_sha,omitempty"`
+	EventID         uuid.UUID `json:"event_id"`
+	EventType       string    `json:"event_type"`
+	PRURL           string    `json:"pr_url,omitempty"`
+	PRNumber        int32     `json:"pr_number,omitempty"`
+	HeadSHA         string    `json:"head_sha,omitempty"`
+	CascadePlanURL  string    `json:"cascade_plan_url,omitempty"`
 }
 
 // Worker is the background queue processor. Constructed once at
@@ -302,6 +311,17 @@ func (w *Worker) resolveIssue(ctx context.Context, rowID int64, eventID uuid.UUI
 // "deploy_flip=…; " prefix so operators reading `multica issue cascade`
 // can see both the flip outcome and the spawn outcome on one line —
 // the previous behaviour surfaced flip outcomes only via server logs.
+//
+// PUL-198 Part 2: a new gate runs after deploy-flip and before
+// loop-guard. Spawn fires ONLY when the issue declares it wants
+// cascade behaviour, via either cascade_state='approved' (PUL-102
+// managed-approval primitive) or cascade_plan_url IS NOT NULL (the
+// self-publishing primitive set by /publish-plan). Issues with
+// neither set still get deploy-flip (PUL-194 invariant — pr_merged
+// always reflects "PR is in main") but the row terminates as
+// action='single_pr_no_spawn'. This stops implicit-always-on agent
+// wake-ups for single-PR issues, while leaving every existing
+// approval-flow caller untouched.
 func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID uuid.UUID, prURL string, prNumber int32, headSHA, eventType string) {
 	flipPrefix := ""
 	if eventType == webhooks.EventTypePRMerged && w.txPool != nil && w.queries != nil {
@@ -328,6 +348,38 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 			// idempotent replay collided on UNIQUE(source, ref_id).
 			// Either way the issue's status is already authoritative.
 			flipPrefix = "deploy_flip=noop; "
+		}
+	}
+
+	// PUL-198 Part 2: cascade gate. Issues that did not opt in to
+	// cascade behaviour (no managed approval, no published plan)
+	// terminate here — deploy-flip has already run above so the
+	// status invariant from PUL-194 is preserved. When queries is
+	// nil (partial wiring, tests that don't supply the deploy-flip
+	// surface) or GetIssue fails we fall through and run the legacy
+	// spawn pipeline — never silently drop a spawn on a transient
+	// DB hiccup, never trip the gate when the caller hasn't wired
+	// the lookup. The plan-URL value also feeds TriggerContext below
+	// so the agent's wake-up payload carries it.
+	var cascadePlanURL string
+	if w.queries != nil {
+		issue, err := w.queries.GetIssue(ctx, pgtype.UUID{Bytes: issueID, Valid: true})
+		switch {
+		case err != nil:
+			w.logger.Warn("cascade.worker.gate_lookup_failed",
+				"issue_id", issueID, "event_id", eventID, "error", err)
+		default:
+			if issue.CascadePlanUrl.Valid {
+				cascadePlanURL = issue.CascadePlanUrl.String
+			}
+			approved := issue.CascadeState.Valid && issue.CascadeState.String == "approved"
+			if !approved && !issue.CascadePlanUrl.Valid {
+				w.markRow(ctx, rowID, "single_pr_no_spawn",
+					flipPrefix+"single_pr_no_spawn: cascade_state not 'approved' and cascade_plan_url IS NULL")
+				w.logger.Info("cascade.worker.single_pr_no_spawn",
+					"issue_id", issueID, "event_id", eventID, "event_type", eventType)
+				return
+			}
 		}
 	}
 
@@ -363,11 +415,12 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 		return
 	}
 	tc := TriggerContext{
-		EventID:   eventID,
-		EventType: eventType,
-		PRURL:     prURL,
-		PRNumber:  prNumber,
-		HeadSHA:   headSHA,
+		EventID:        eventID,
+		EventType:      eventType,
+		PRURL:          prURL,
+		PRNumber:       prNumber,
+		HeadSHA:        headSHA,
+		CascadePlanURL: cascadePlanURL,
 	}
 	if active {
 		if err := w.queuePending(ctx, issueID, eventID, tc); err != nil {
