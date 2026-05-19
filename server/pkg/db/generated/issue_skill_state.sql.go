@@ -11,6 +11,88 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cleanupStaleIssueSkillStates = `-- name: CleanupStaleIssueSkillStates :many
+DELETE FROM issue_skill_state
+WHERE (issue_id, skill_slug) IN (
+    SELECT issue_id, skill_slug
+    FROM issue_skill_state
+    WHERE status = 'in_progress'
+      AND updated_at < now() - make_interval(secs => $1::bigint)
+    ORDER BY updated_at
+    LIMIT 10000
+)
+RETURNING issue_id, skill_slug, started_at, updated_at
+`
+
+type CleanupStaleIssueSkillStatesRow struct {
+	IssueID   pgtype.UUID        `json:"issue_id"`
+	SkillSlug string             `json:"skill_slug"`
+	StartedAt pgtype.Timestamptz `json:"started_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+// PUL-182: delete `in_progress` rows whose `updated_at` is older than the
+// supplied TTL. A skill that crashed before calling `done` (claude-code
+// session crash, agent worktree force-killed, rate-limit on the claude
+// API) leaves an "in_progress" chip in the Inbox forever; this query is
+// the cron-side cleanup invoked from runSkillStateCleanupScheduler
+// every 15 minutes (default TTL 24h, overridable via
+// ISSUE_SKILL_STATE_STALE_TTL).
+//
+// Why `updated_at` and not `started_at`: UpsertIssueSkillState above
+// preserves `started_at` on an `in_progress` → `in_progress` re-ping
+// (so the chip tooltip keeps the *original* "started at" clock), but
+// bumps `updated_at` every time. Filtering on `started_at` would
+// therefore delete an actively-running skill that has been re-pinged
+// recently but originally began > TTL ago. `updated_at` is the
+// "last heard from this skill" clock, which is what staleness means.
+//
+// `make_interval(secs => ...)` takes the typed int64 directly so we do
+// not have to round-trip through text concatenation. PG evaluates
+// `now() - interval` once per row at executor time.
+//
+// `status = 'in_progress'` is intentionally strict — `done` rows are
+// the historical record used by LastSkillChip and SkillHistory and must
+// survive indefinitely. If PUL-177's CHECK constraint ever gains a
+// `stale` enum value (out of scope for v1), this query needs an
+// explicit re-decision about whether `stale` should also be swept.
+//
+// `LIMIT 10000` caps the per-tick batch so a first-deploy / outage-
+// recovery backlog of phantom rows can't bloat the RETURNING slice
+// into a single transaction. At 10k rows × ~80 bytes / row that's
+// ~800KB of debug payload, acceptable; the next tick (15 min later)
+// mops up any remainder. Subquery materialises the row set so the
+// planner can use the partial index for the scan.
+//
+// RETURNING the deleted rows so the scheduler can log per-row debug
+// info ("which phantom chip did we just remove?") without a separate
+// SELECT. The slice is empty on a no-op tick, so the scheduler's
+// `slog.Info` only fires when something was actually cleaned.
+func (q *Queries) CleanupStaleIssueSkillStates(ctx context.Context, ttlSeconds int64) ([]CleanupStaleIssueSkillStatesRow, error) {
+	rows, err := q.db.Query(ctx, cleanupStaleIssueSkillStates, ttlSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CleanupStaleIssueSkillStatesRow{}
+	for rows.Next() {
+		var i CleanupStaleIssueSkillStatesRow
+		if err := rows.Scan(
+			&i.IssueID,
+			&i.SkillSlug,
+			&i.StartedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteIssueSkillState = `-- name: DeleteIssueSkillState :exec
 DELETE FROM issue_skill_state
 WHERE issue_id = $1 AND skill_slug = $2
