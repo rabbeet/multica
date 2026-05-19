@@ -21,6 +21,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -34,6 +35,15 @@ import (
 // without `done` will be visible until at most T = TTL + 15 min.
 const skillStateCleanupTickInterval = 15 * time.Minute
 
+// skillStateCleanupMinTTL is the floor enforced on the configured TTL.
+// `envDuration` will happily accept "500ms" or "0s", which would
+// truncate to 0 seconds at the SQL boundary (CleanupStaleIssueSkillStates
+// takes seconds as int64) and delete every `in_progress` row on every
+// tick — a phantom-chip *amplifier* rather than a cleaner. One second
+// is the smallest TTL where the SQL math still works correctly; any
+// smaller value is a misconfiguration.
+const skillStateCleanupMinTTL = time.Second
+
 // runSkillStateCleanupScheduler starts the periodic TTL cleanup. Shares
 // the shutdown context with the other schedulers wired in main.go so
 // SIGTERM cleanly stops it during graceful drain.
@@ -42,6 +52,13 @@ const skillStateCleanupTickInterval = 15 * time.Minute
 // 15 minutes after server boot — if the server just restarted from a
 // crash, any rows the crash itself orphaned are picked up immediately.
 func runSkillStateCleanupScheduler(ctx context.Context, queries *db.Queries, ttl time.Duration) {
+	if ttl < skillStateCleanupMinTTL {
+		slog.Warn("skill_state cleanup: TTL below 1s, clamping to default",
+			"requested_ttl", ttl.String(),
+			"applied_ttl", (24 * time.Hour).String())
+		ttl = 24 * time.Hour
+	}
+
 	runSkillStateCleanupTick(ctx, queries, ttl)
 
 	ticker := time.NewTicker(skillStateCleanupTickInterval)
@@ -61,9 +78,15 @@ func runSkillStateCleanupScheduler(ctx context.Context, queries *db.Queries, ttl
 // least one row was deleted (so a healthy idle server is silent at the
 // default log level) and emits per-row Debug entries so operators
 // debugging "why did this chip disappear?" can grep for the slug.
+//
+// A cancelled context returns silently — `context.Canceled` during a
+// graceful shutdown is expected, not a failure mode worth Warn-logging.
 func runSkillStateCleanupTick(ctx context.Context, queries *db.Queries, ttl time.Duration) {
 	deleted, err := queries.CleanupStaleIssueSkillStates(ctx, int64(ttl.Seconds()))
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
 		slog.Warn("skill_state cleanup: failed", "error", err, "ttl", ttl.String())
 		return
 	}
@@ -77,6 +100,7 @@ func runSkillStateCleanupTick(ctx context.Context, queries *db.Queries, ttl time
 		slog.Debug("skill_state cleanup row",
 			"issue_id", util.UUIDToString(row.IssueID),
 			"skill_slug", row.SkillSlug,
-			"started_at", row.StartedAt.Time.UTC().Format(time.RFC3339Nano))
+			"started_at", row.StartedAt.Time.UTC().Format(time.RFC3339Nano),
+			"updated_at", row.UpdatedAt.Time.UTC().Format(time.RFC3339Nano))
 	}
 }

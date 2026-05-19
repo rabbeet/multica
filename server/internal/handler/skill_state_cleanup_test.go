@@ -47,6 +47,27 @@ func seedSkillStateAged(t *testing.T, slug, status string, ageSeconds int) strin
 	return issueID
 }
 
+// seedSkillStateSplitClock seeds an in_progress row whose `started_at`
+// is rewound by startedAgeSeconds but `updated_at` is rewound by
+// updatedAgeSeconds. Models the "skill is still actively running but
+// began a long time ago, was re-pinged recently" Upsert branch.
+func seedSkillStateSplitClock(t *testing.T, slug string, startedAgeSeconds, updatedAgeSeconds int) string {
+	t.Helper()
+	issueID := createSkillStateIssue(t, "cleanup test split-clock "+slug)
+	postSkillState(t, issueID, map[string]any{"skill": slug, "status": "in_progress"})
+	if _, err := testPool.Exec(
+		context.Background(),
+		`UPDATE issue_skill_state
+		    SET started_at = now() - make_interval(secs => $3::bigint),
+		        updated_at = now() - make_interval(secs => $4::bigint)
+		  WHERE issue_id = $1::uuid AND skill_slug = $2`,
+		issueID, slug, startedAgeSeconds, updatedAgeSeconds,
+	); err != nil {
+		t.Fatalf("seedSkillStateSplitClock: %v", err)
+	}
+	return issueID
+}
+
 // countSkillStateRows returns how many rows match (issueID, slug). The
 // primary key on issue_skill_state guarantees at most one — anything
 // other than 0 or 1 here is a test-bug.
@@ -196,7 +217,67 @@ func TestCleanupStaleIssueSkillStates_MixedBatch(t *testing.T) {
 	}
 }
 
-// Documents the boundary: `started_at < now() - ttl` is strict-less-than,
+// Regression for the staleness-clock bug surfaced in codex review of
+// PR #40: `UpsertIssueSkillState` preserves `started_at` on an
+// `in_progress` → `in_progress` re-ping but bumps `updated_at`. A
+// long-running skill that has been pinged recently must NOT be swept
+// even if its `started_at` is older than the TTL. The query keys off
+// `updated_at` to enforce this.
+func TestCleanupStaleIssueSkillStates_FreshUpdateOldStartPreserved(t *testing.T) {
+	if testPool == nil {
+		t.Skip("no DB")
+	}
+	// `started_at` 25h ago, `updated_at` 1h ago — actively-running skill
+	// that began before the TTL window. Must survive.
+	issueID := seedSkillStateSplitClock(t, "long-running-skill", 25*cleanupHour, 1*cleanupHour)
+
+	deleted, err := testHandler.Queries.CleanupStaleIssueSkillStates(
+		context.Background(), int64(24*cleanupHour),
+	)
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	for _, row := range deleted {
+		if util.UUIDToString(row.IssueID) == issueID {
+			t.Fatalf("row with fresh updated_at must survive even when started_at is older than TTL; got %+v", row)
+		}
+	}
+	if got := countSkillStateRows(t, issueID, "long-running-skill"); got != 1 {
+		t.Fatalf("expected actively-running row to survive, got count=%d", got)
+	}
+}
+
+// Inverse of the regression above: `started_at` is fresh (skill just
+// (re)started, then immediately crashed) but `updated_at` is also old
+// — should be deleted. The "real" failure shape this query targets.
+func TestCleanupStaleIssueSkillStates_BothClocksOldDeleted(t *testing.T) {
+	if testPool == nil {
+		t.Skip("no DB")
+	}
+	issueID := seedSkillStateSplitClock(t, "crashed-skill", 25*cleanupHour, 25*cleanupHour)
+
+	deleted, err := testHandler.Queries.CleanupStaleIssueSkillStates(
+		context.Background(), int64(24*cleanupHour),
+	)
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	found := false
+	for _, row := range deleted {
+		if util.UUIDToString(row.IssueID) == issueID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("row with both clocks > TTL should be deleted")
+	}
+	if got := countSkillStateRows(t, issueID, "crashed-skill"); got != 0 {
+		t.Fatalf("expected row to be gone, got count=%d", got)
+	}
+}
+
+// Documents the boundary: `updated_at < now() - ttl` is strict-less-than,
 // so a row whose age equals the TTL exactly survives. We seed two rows
 // straddling the boundary in a single test so the relative ordering is
 // stable regardless of how the wall clock drifts during the test.
