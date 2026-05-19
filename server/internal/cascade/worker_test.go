@@ -11,6 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // workerTestDBPool / workerMakeWorkspaceAndUser / workerInsertCascadeIssue
@@ -150,7 +152,7 @@ func TestWorker_HappyPath_SpawnsAndMarks(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -188,7 +190,7 @@ func TestWorker_ActiveRun_QueuesPending(t *testing.T) {
 	sp := &fakeSpawner{}
 	sp.hasActive.Store(true) // active run on this issue
 
-	w := NewWorker(pool, sp, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -236,7 +238,7 @@ func TestWorker_LoopGuard_TripsAfterThreshold(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE pr_url = $1`, prURL)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -271,7 +273,7 @@ func TestWorker_SpawnFailureLeavesRowUnprocessed(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{spawnErr: errors.New("spawn boom")}
-	w := NewWorker(pool, sp, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -309,7 +311,7 @@ func TestWorker_SpawnGatedMarksRowSkipped(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{spawnErr: fmt.Errorf("no assignee: %w", ErrSpawnGated)}
-	w := NewWorker(pool, sp, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -357,7 +359,7 @@ func TestWorker_NoIssueIDIsScopeSkip(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -400,7 +402,7 @@ func TestWorker_DrainPending_SpawnsWhenPending(t *testing.T) {
 	}
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
 	w.DrainPending(context.Background(), issueID)
 
 	if sp.spawnCalls.Load() != 1 {
@@ -427,7 +429,7 @@ func TestWorker_DrainPending_NoPendingIsQuiet(t *testing.T) {
 	defer cleanup()
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
 	w.DrainPending(context.Background(), issueID)
 	if sp.spawnCalls.Load() != 0 {
 		t.Errorf("expected no spawn when no pending, got %d", sp.spawnCalls.Load())
@@ -481,7 +483,7 @@ func TestWorker_ResolveIssue_PRTitleMatchTriggersLookup(t *testing.T) {
 
 	loader := &fakeLoader{resp: issueID}
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, loader, nil)
+	w := NewWorker(pool, sp, loader, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if loader.calls != 1 || loader.want != "PUL-9001" {
@@ -518,7 +520,7 @@ func TestWorker_ResolveIssue_BranchFallbackTriggersLookup(t *testing.T) {
 
 	loader := &fakeLoader{resp: issueID}
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, loader, nil)
+	w := NewWorker(pool, sp, loader, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if loader.calls != 1 || loader.want != "PUL-7777" {
@@ -542,7 +544,7 @@ func TestWorker_ResolveIssue_IssueNotFoundIsScopeSkip(t *testing.T) {
 
 	loader := &fakeLoader{err: ErrIssueNotFound}
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, loader, nil)
+	w := NewWorker(pool, sp, loader, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -572,7 +574,7 @@ func TestWorker_ResolveIssue_LoaderRetryableErrorLeavesRow(t *testing.T) {
 
 	loader := &fakeLoader{err: errors.New("transient db error")}
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, loader, nil)
+	w := NewWorker(pool, sp, loader, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -605,7 +607,7 @@ func TestWorker_NilLoader_LegacyScopeSkip(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil) // nil loader
+	w := NewWorker(pool, sp, nil, nil, nil, nil) // nil loader
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -616,5 +618,116 @@ func TestWorker_NilLoader_LegacyScopeSkip(t *testing.T) {
 		`SELECT action FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action)
 	if action != "scope_filter_skip" {
 		t.Errorf("action = %q, want scope_filter_skip", action)
+	}
+}
+
+// TestWorker_AutoFlipsToDeployedOnPRMerged is the regression guard
+// against PUL-194's "hook after spawn" trap. With txPool + queries
+// wired, an `event_type='pr_merged'` event MUST flip status to
+// `deployed` *even when* the spawn pipeline short-circuits via the
+// active-concurrent-run branch (queue_pending → return). Status
+// reflects "PR is in main", which is independent of whether the
+// agent wakes up.
+//
+// This test is intentionally separate from the deploy_flip_test.go
+// unit tests of ApplyDeployFlip — it asserts the *worker* wires the
+// call in the right place in processOne.
+func TestWorker_AutoFlipsToDeployedOnPRMerged(t *testing.T) {
+	pool := workerTestDBPool(t)
+	if pool == nil {
+		return
+	}
+	ws, cleanup := workerMakeWorkspaceAndUser(t, pool)
+	defer cleanup()
+	queries := db.New(pool)
+
+	// Single-PR issue: cascade_state NULL, starting status 'todo'.
+	issueID := insertIssueForDeployFlip(t, pool, ws, 19420, "todo", "")
+	rowID := insertRetrigger(t, pool, issueID,
+		"https://github.com/o/r/pull/100", "sha-merged", "pr_merged")
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+	defer pool.Exec(context.Background(),
+		`DELETE FROM issue_status_history WHERE issue_id = $1`, issueID)
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_pending_event WHERE issue_id = $1`, issueID)
+
+	sp := &fakeSpawner{}
+	sp.hasActive.Store(true) // force queue_pending → return path
+
+	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w.PollOnce(context.Background())
+
+	// Pipeline-side: queue_pending was the path taken.
+	if sp.spawnCalls.Load() != 0 {
+		t.Errorf("expected no spawn while active run held, got %d", sp.spawnCalls.Load())
+	}
+	var action string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action); err != nil {
+		t.Fatalf("read action: %v", err)
+	}
+	if action != "queued_pending" {
+		t.Errorf("action = %q, want queued_pending", action)
+	}
+
+	// Status side: flip MUST have happened despite the queue path.
+	var status string
+	var deployedAt *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status, deployed_at::text FROM issue WHERE id = $1`, issueID,
+	).Scan(&status, &deployedAt); err != nil {
+		t.Fatalf("read issue: %v", err)
+	}
+	if status != "deployed" {
+		t.Errorf("status = %q, want deployed — flip is wired AFTER spawn instead of BEFORE", status)
+	}
+	if deployedAt == nil {
+		t.Errorf("deployed_at not stamped")
+	}
+
+	// History row should exist with source=hook_pr_merged.
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM issue_status_history
+		 WHERE issue_id = $1 AND source = $2`,
+		issueID, SourceHookPRMerged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count history: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("history rows = %d, want 1", count)
+	}
+}
+
+// TestWorker_NonPRMergedEventDoesNotFlip locks in the negative side:
+// only event_type='pr_merged' triggers the auto-flip. ci_failure,
+// pr_review_change, etc. continue to spawn-without-flip.
+func TestWorker_NonPRMergedEventDoesNotFlip(t *testing.T) {
+	pool := workerTestDBPool(t)
+	if pool == nil {
+		return
+	}
+	ws, cleanup := workerMakeWorkspaceAndUser(t, pool)
+	defer cleanup()
+	queries := db.New(pool)
+
+	issueID := insertIssueForDeployFlip(t, pool, ws, 19421, "in_progress", "")
+	rowID := insertRetrigger(t, pool, issueID,
+		"https://github.com/o/r/pull/101", "sha-ci", "ci_failure")
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+
+	sp := &fakeSpawner{}
+	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w.PollOnce(context.Background())
+
+	var status string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status FROM issue WHERE id = $1`, issueID).Scan(&status); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if status == "deployed" {
+		t.Errorf("ci_failure event flipped status to deployed (must only fire on pr_merged)")
 	}
 }

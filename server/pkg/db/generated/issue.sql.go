@@ -930,3 +930,53 @@ func (q *Queries) UpdateIssueStatus(ctx context.Context, arg UpdateIssueStatusPa
 	)
 	return i, err
 }
+
+const updateIssueStatusToDeployed = `-- name: UpdateIssueStatusToDeployed :one
+UPDATE issue SET
+    status = 'deployed',
+    deployed_at = COALESCE(deployed_at, now()),
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, deployed_at, cascade_state, cascade_started_at, cascade_last_event_at, cascade_progress
+`
+
+// Atomic transition to 'deployed' that also stamps the lifecycle marker
+// deployed_at on first arrival. COALESCE preserves deployed_at on a re-deploy
+// after a bug-fix loop (deployed → developing → deployed) as evidence the
+// issue was on prod at least once. Callers flipping to non-deployed states
+// continue to use UpdateIssueStatus; this query is the dedicated entry point
+// for the PUL-194 server-side auto-flip in cascade.ApplyDeployFlip.
+func (q *Queries) UpdateIssueStatusToDeployed(ctx context.Context, id pgtype.UUID) (Issue, error) {
+	row := q.db.QueryRow(ctx, updateIssueStatusToDeployed, id)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.CreatorType,
+		&i.CreatorID,
+		&i.ParentIssueID,
+		&i.AcceptanceCriteria,
+		&i.ContextRefs,
+		&i.Position,
+		&i.DueDate,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.ProjectID,
+		&i.OriginType,
+		&i.OriginID,
+		&i.FirstExecutedAt,
+		&i.DeployedAt,
+		&i.CascadeState,
+		&i.CascadeStartedAt,
+		&i.CascadeLastEventAt,
+		&i.CascadeProgress,
+	)
+	return i, err
+}

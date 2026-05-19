@@ -66,6 +66,20 @@ UPDATE issue SET
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateIssueStatusToDeployed :one
+-- Atomic transition to 'deployed' that also stamps the lifecycle marker
+-- deployed_at on first arrival. COALESCE preserves deployed_at on a re-deploy
+-- after a bug-fix loop (deployed → developing → deployed) as evidence the
+-- issue was on prod at least once. Callers flipping to non-deployed states
+-- continue to use UpdateIssueStatus; this query is the dedicated entry point
+-- for the PUL-194 server-side auto-flip in cascade.ApplyDeployFlip.
+UPDATE issue SET
+    status = 'deployed',
+    deployed_at = COALESCE(deployed_at, now()),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: CreateIssueWithOrigin :one
 INSERT INTO issue (
     workspace_id, title, description, status, priority,

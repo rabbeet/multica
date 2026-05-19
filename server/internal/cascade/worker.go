@@ -12,6 +12,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/multica-ai/multica/server/internal/webhooks"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // LoopGuardWindow defines the time window over which we count
@@ -110,6 +114,14 @@ type Worker struct {
 	spawner Spawner
 	loader  IssueLoader
 	logger  *slog.Logger
+
+	// txPool / queries together carry the surface ApplyDeployFlip needs.
+	// Both are optional — when either is nil the PUL-194 auto-flip is a
+	// no-op so a partially-wired startup never silently drops events.
+	// Production wires both via NewWorker; tests substitute through
+	// SetDeployFlipDeps.
+	txPool  *pgxpool.Pool
+	queries *db.Queries
 }
 
 // NewWorker constructs the worker. Spawner is required; pool must
@@ -118,11 +130,23 @@ type Worker struct {
 // optional: when nil the worker falls back to scope_filter_skip on
 // rows with NULL issue_id (the pre-wiring behavior), so an
 // incomplete startup still doesn't drop events on the floor.
-func NewWorker(pool pgConn, spawner Spawner, loader IssueLoader, logger *slog.Logger) *Worker {
+//
+// txPool + queries are the PUL-194 auto-flip surface (real *pgxpool.Pool +
+// sqlc Queries). Both must be non-nil for ApplyDeployFlip to run on
+// pr_merged events; either nil → auto-flip is silently skipped (pre-PUL-194
+// behaviour, agent-mediated path still works for cascade-final case).
+func NewWorker(pool pgConn, spawner Spawner, loader IssueLoader, txPool *pgxpool.Pool, queries *db.Queries, logger *slog.Logger) *Worker {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Worker{pool: pool, spawner: spawner, loader: loader, logger: logger}
+	return &Worker{
+		pool:    pool,
+		spawner: spawner,
+		loader:  loader,
+		txPool:  txPool,
+		queries: queries,
+		logger:  logger,
+	}
 }
 
 // Run polls cascade_retrigger for pending events until ctx is
@@ -258,8 +282,39 @@ func (w *Worker) resolveIssue(ctx context.Context, rowID int64, eventID uuid.UUI
 }
 
 // processOne runs the per-event pipeline for an already-resolved
-// issue: loop guard → concurrency → spawn.
+// issue: deploy auto-flip (pr_merged only) → loop guard → concurrency
+// → spawn.
+//
+// PUL-194: the deploy auto-flip runs FIRST, before loop guard and
+// active-run check, because the issue.status='deployed' transition
+// reflects "PR is in main" — which is true regardless of whether the
+// agent gets to spawn (loop guard tripped, run already active, spawn
+// failed transiently, etc.). Placing the flip after spawn would leak
+// the bug back: three of those control-flow branches `return` before
+// any post-spawn code runs, leaving the status stuck. See plan
+// revision dbdaf20 ("Critical findings #1") for the regression
+// rationale; worker_test.go::TestWorker_AutoFlipsToDeployedOnPRMerged
+// case (5: active_concurrent_run_still_flips) is the regression
+// guard.
 func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID uuid.UUID, prURL string, prNumber int32, headSHA, eventType string) {
+	if eventType == webhooks.EventTypePRMerged && w.txPool != nil && w.queries != nil {
+		flipped, err := ApplyDeployFlip(ctx, w.txPool, w.queries, issueID, eventID)
+		if err != nil {
+			// Best-effort: log + continue. Failing here MUST NOT block
+			// the spawn pipeline — agent wake-up is independent of
+			// status bookkeeping, and the next pr_merged event on this
+			// issue would normally retry the flip (idempotent via
+			// UNIQUE(source, ref_id)). For single-PR issues with no
+			// next event, a reconciliation cron (future PUL) is the
+			// catch-up.
+			w.logger.Warn("cascade.worker.deploy_flip_failed",
+				"issue_id", issueID, "event_id", eventID, "error", err)
+		} else if flipped {
+			w.logger.Info("cascade.worker.deploy_flipped",
+				"issue_id", issueID, "event_id", eventID, "pr_number", prNumber)
+		}
+	}
+
 	// Loop guard: count distinct head_sha within the 6h window for
 	// this issue. Pre-PUL-148 the key was pr_url, which the GitHub
 	// adapter relaxation could leave empty (workflow_run.pull_requests=[]
