@@ -365,7 +365,10 @@ function StatusFooter({
   status: IssueStatus;
   timestamp?: string;
 }) {
-  const cfg = STATUS_CONFIG[status];
+  // PUL-199: defensive fallback in case a future caller passes an unknown
+  // status string. `status` is typed IssueStatus here, so this only kicks
+  // in at runtime — same pattern as in StatusIcon itself.
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.todo;
   return (
     <div className="mt-3 flex items-center gap-2 text-xs">
       <span

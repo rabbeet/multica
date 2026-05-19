@@ -49,22 +49,31 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
   switch (item.type) {
     case "status_changed": {
       if (!details.to) return <span>{typeLabels[item.type]}</span>;
+      // PUL-199: only render the icon when the status string is known.
+      // For unknown values, StatusIcon would fall back to a neutral gray
+      // circle (its own internal guard) — but visually that's misleading
+      // here: it would look like a real status. Better to drop the icon
+      // and show the raw label text only.
+      const knownStatus = details.to in STATUS_CONFIG;
       const label = STATUS_CONFIG[details.to as IssueStatus]?.label ?? details.to;
       return (
         <span className="inline-flex items-center gap-1">
           {t(($) => $.labels.set_status_to)}
-          <StatusIcon status={details.to as IssueStatus} className="h-3 w-3" />
+          {knownStatus && <StatusIcon status={details.to as IssueStatus} className="h-3 w-3" />}
           {label}
         </span>
       );
     }
     case "priority_changed": {
       if (!details.to) return <span>{typeLabels[item.type]}</span>;
+      // PUL-199 mirror: same reasoning as status_changed above — drop the
+      // icon when the priority value is outside the known set.
+      const knownPriority = details.to in PRIORITY_CONFIG;
       const label = PRIORITY_CONFIG[details.to as IssuePriority]?.label ?? details.to;
       return (
         <span className="inline-flex items-center gap-1">
           {t(($) => $.labels.set_priority_to)}
-          <PriorityIcon priority={details.to as IssuePriority} className="h-3 w-3" />
+          {knownPriority && <PriorityIcon priority={details.to as IssuePriority} className="h-3 w-3" />}
           {label}
         </span>
       );
