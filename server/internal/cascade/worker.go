@@ -243,14 +243,14 @@ FOR UPDATE SKIP LOCKED`
 // partial rollout never silently drops or mis-routes events.
 func (w *Worker) resolveIssue(ctx context.Context, rowID int64, eventID uuid.UUID, prTitle, branch string) (uuid.UUID, bool) {
 	if w.loader == nil {
-		w.markRow(ctx, rowID, "scope_filter_skip")
+		w.markRow(ctx, rowID, "scope_filter_skip", "scope_filter: no IssueLoader configured")
 		w.logger.Info("cascade.worker.no_loader_configured",
 			"event_id", eventID, "row_id", rowID)
 		return uuid.Nil, false
 	}
 	identifier := LookupIssueIdentifier(prTitle, branch)
 	if identifier == "" {
-		w.markRow(ctx, rowID, "scope_filter_skip")
+		w.markRow(ctx, rowID, "scope_filter_skip", "scope_filter: no PUL-N identifier in pr_title or branch")
 		w.logger.Info("cascade.worker.no_identifier",
 			"event_id", eventID, "row_id", rowID,
 			"pr_title", prTitle, "branch", branch)
@@ -259,7 +259,7 @@ func (w *Worker) resolveIssue(ctx context.Context, rowID int64, eventID uuid.UUI
 	issueID, err := w.loader.LookupByIdentifier(ctx, identifier)
 	if err != nil {
 		if errors.Is(err, ErrIssueNotFound) {
-			w.markRow(ctx, rowID, "scope_filter_skip")
+			w.markRow(ctx, rowID, "scope_filter_skip", "scope_filter: issue not found: "+identifier)
 			w.logger.Info("cascade.worker.issue_not_found",
 				"event_id", eventID, "identifier", identifier)
 			return uuid.Nil, false
@@ -296,10 +296,18 @@ func (w *Worker) resolveIssue(ctx context.Context, rowID int64, eventID uuid.UUI
 // rationale; worker_test.go::TestWorker_AutoFlipsToDeployedOnPRMerged
 // case (5: active_concurrent_run_still_flips) is the regression
 // guard.
+//
+// PUL-198: every markRow call records action_reason alongside action.
+// For pr_merged rows the deploy-flip outcome is prepended as a
+// "deploy_flip=…; " prefix so operators reading `multica issue cascade`
+// can see both the flip outcome and the spawn outcome on one line —
+// the previous behaviour surfaced flip outcomes only via server logs.
 func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID uuid.UUID, prURL string, prNumber int32, headSHA, eventType string) {
+	flipPrefix := ""
 	if eventType == webhooks.EventTypePRMerged && w.txPool != nil && w.queries != nil {
 		flipped, err := ApplyDeployFlip(ctx, w.txPool, w.queries, issueID, eventID)
-		if err != nil {
+		switch {
+		case err != nil:
 			// Best-effort: log + continue. Failing here MUST NOT block
 			// the spawn pipeline — agent wake-up is independent of
 			// status bookkeeping, and the next pr_merged event on this
@@ -309,9 +317,17 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 			// catch-up.
 			w.logger.Warn("cascade.worker.deploy_flip_failed",
 				"issue_id", issueID, "event_id", eventID, "error", err)
-		} else if flipped {
+			flipPrefix = "deploy_flip=failed: " + err.Error() + "; "
+		case flipped:
 			w.logger.Info("cascade.worker.deploy_flipped",
 				"issue_id", issueID, "event_id", eventID, "pr_number", prNumber)
+			flipPrefix = "deploy_flip=flipped status_to=deployed; "
+		default:
+			// flipped=false, err=nil — DecideDeployFlip rejected
+			// (already deployed / cascade_state mid-flight) OR
+			// idempotent replay collided on UNIQUE(source, ref_id).
+			// Either way the issue's status is already authoritative.
+			flipPrefix = "deploy_flip=noop; "
 		}
 	}
 
@@ -327,11 +343,12 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 	// resolved value the worker just used above to make routing
 	// decisions), and is semantically tighter for multi-PR-per-issue
 	// flows.
-	if tripped, err := w.checkLoopGuard(ctx, issueID); err != nil {
+	if n, tripped, err := w.checkLoopGuard(ctx, issueID); err != nil {
 		w.logger.Warn("cascade.worker.loop_guard_query_failed", "error", err)
 	} else if tripped {
 		w.flipLoopGuarded(ctx, issueID)
-		w.markRow(ctx, rowID, "loop_guard_skip")
+		w.markRow(ctx, rowID, "loop_guard_skip",
+			flipPrefix+fmt.Sprintf("loop_guard: %d distinct head_shas in %s window", n, LoopGuardWindow))
 		w.logger.Warn("cascade.worker.loop_guard_tripped",
 			"issue_id", issueID, "pr_url", prURL)
 		return
@@ -357,7 +374,7 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 			w.logger.Warn("cascade.worker.queue_pending_failed",
 				"issue_id", issueID, "error", err)
 		}
-		w.markRow(ctx, rowID, "queued_pending")
+		w.markRow(ctx, rowID, "queued_pending", flipPrefix+"queued_pending: active run present")
 		return
 	}
 
@@ -369,7 +386,7 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 			// operator's fix (assign agent / unarchive) will be
 			// picked up on the NEXT webhook delivery, not by
 			// re-running this row.
-			w.markRow(ctx, rowID, "scope_filter_skip")
+			w.markRow(ctx, rowID, "scope_filter_skip", flipPrefix+err.Error())
 			w.logger.Info("cascade.worker.spawn_gated",
 				"issue_id", issueID, "event_id", eventID, "reason", err)
 			return
@@ -379,7 +396,7 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 		// Leave processed_at NULL so the next tick retries.
 		return
 	}
-	w.markRow(ctx, rowID, "spawn")
+	w.markRow(ctx, rowID, "spawn", flipPrefix+"spawned")
 	w.logger.Info("cascade.worker.spawned",
 		"issue_id", issueID,
 		"event_id", eventID,
@@ -393,17 +410,23 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 		pgtype.UUID{Bytes: issueID, Valid: true})
 }
 
-func (w *Worker) markRow(ctx context.Context, rowID int64, action string) {
+// markRow writes the worker's terminal decision for a cascade_retrigger
+// row. PUL-198 added action_reason — a human-readable string explaining
+// *why* the row landed on this action. Callers compose the reason with
+// any deploy_flip prefix already captured in processOne, so a single
+// row tells the operator both halves of what happened.
+func (w *Worker) markRow(ctx context.Context, rowID int64, action, reason string) {
 	if _, err := w.pool.Exec(ctx,
-		`UPDATE cascade_retrigger SET processed_at = now(), action = $1 WHERE id = $2`,
-		action, rowID); err != nil {
+		`UPDATE cascade_retrigger SET processed_at = now(), action = $1, action_reason = $2 WHERE id = $3`,
+		action, reason, rowID); err != nil {
 		w.logger.Warn("cascade.worker.mark_failed", "row_id", rowID, "error", err)
 	}
 }
 
 // checkLoopGuard reports whether the per-issue distinct-head_sha
-// count in LoopGuardWindow meets LoopGuardThreshold. Pre-PUL-148 the
-// key was pr_url, but real GitHub deliveries can arrive with
+// count in LoopGuardWindow meets LoopGuardThreshold, and returns the
+// observed count so callers can surface it in action_reason. Pre-PUL-148
+// the key was pr_url, but real GitHub deliveries can arrive with
 // pr_url="" (workflow_run.pull_requests=[] case relaxed by PR #21's
 // adapter fix), which would bucket-collapse distinct PRs and
 // false-trip the guard. Keying off issue_id is the semantically-
@@ -411,7 +434,7 @@ func (w *Worker) markRow(ctx context.Context, rowID int64, action string) {
 // spawn in 6h" is the runaway scenario we actually want to catch.
 // Backed by idx_cascade_retrigger_loop_guard_by_issue from
 // migration 076.
-func (w *Worker) checkLoopGuard(ctx context.Context, issueID uuid.UUID) (bool, error) {
+func (w *Worker) checkLoopGuard(ctx context.Context, issueID uuid.UUID) (int, bool, error) {
 	const sql = `
 SELECT COUNT(DISTINCT head_sha)
 FROM cascade_retrigger
@@ -423,11 +446,11 @@ WHERE issue_id = $1
 		pgtype.UUID{Bytes: issueID, Valid: true},
 		fmt.Sprintf("%d seconds", int(LoopGuardWindow.Seconds()))).Scan(&n); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
+			return 0, false, nil
 		}
-		return false, err
+		return 0, false, err
 	}
-	return n >= LoopGuardThreshold, nil
+	return n, n >= LoopGuardThreshold, nil
 }
 
 // flipLoopGuarded transitions the issue's cascade_state to

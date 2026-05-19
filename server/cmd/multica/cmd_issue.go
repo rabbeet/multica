@@ -205,6 +205,16 @@ var issueRerunCmd = &cobra.Command{
 	RunE:  runIssueRerun,
 }
 
+// PUL-198: cascade_retrigger audit log surface. Operators reach for
+// this when a PR merged but the agent did not wake — the row's action
+// + action_reason answer "why" in one line.
+var issueCascadeCmd = &cobra.Command{
+	Use:   "cascade <issue-id>",
+	Short: "Show cascade event history for an issue (action, reason, deploy-flip outcome)",
+	Args:  exactArgs(1),
+	RunE:  runIssueCascade,
+}
+
 var issueSearchCmd = &cobra.Command{
 	Use:   "search <query>",
 	Short: "Search issues by title or description",
@@ -239,6 +249,7 @@ func init() {
 	issueCmd.AddCommand(issueRunMessagesCmd)
 	issueCmd.AddCommand(issueRerunCmd)
 	issueCmd.AddCommand(issueSearchCmd)
+	issueCmd.AddCommand(issueCascadeCmd)
 
 	issueCommentCmd.AddCommand(issueCommentListCmd)
 	issueCommentCmd.AddCommand(issueCommentAddCmd)
@@ -305,6 +316,9 @@ func init() {
 
 	// issue runs
 	issueRunsCmd.Flags().String("output", "table", "Output format: table or json")
+
+	// issue cascade (PUL-198)
+	issueCascadeCmd.Flags().String("output", "table", "Output format: table or json")
 
 	// issue rerun
 	issueRerunCmd.Flags().String("output", "json", "Output format: table or json")
@@ -1072,6 +1086,61 @@ func runIssueRuns(cmd *cobra.Command, args []string) error {
 		})
 	}
 	cli.PrintTable(os.Stdout, headers, rows)
+	return nil
+}
+
+// runIssueCascade hits GET /api/issues/<id>/cascade and renders the
+// cascade_retrigger audit log. Operators read this to answer "why
+// didn't cascade spawn for PR X" without trawling server logs. See
+// PUL-198.
+func runIssueCascade(cmd *cobra.Command, args []string) error {
+	client, err := newAPIClient(cmd)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var rows []map[string]any
+	if err := client.GetJSON(ctx, "/api/issues/"+args[0]+"/cascade", &rows); err != nil {
+		return fmt.Errorf("list cascade events: %w", err)
+	}
+
+	output, _ := cmd.Flags().GetString("output")
+	if output == "json" {
+		return cli.PrintJSON(os.Stdout, rows)
+	}
+
+	headers := []string{"FIRED_AT", "EVENT", "PR", "ACTION", "REASON"}
+	out := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		fired := strVal(r, "fired_at")
+		if len(fired) >= 19 {
+			fired = fired[:19]
+		}
+		event := strVal(r, "event_type")
+		prCell := strVal(r, "pr_url")
+		if prNum, ok := r["pr_number"]; ok {
+			switch v := prNum.(type) {
+			case float64:
+				if v > 0 {
+					prCell = fmt.Sprintf("#%d", int(v))
+				}
+			}
+		}
+		action := strVal(r, "action")
+		if action == "" {
+			action = "—"
+		}
+		reason := strVal(r, "action_reason")
+		if utf8.RuneCountInString(reason) > 80 {
+			runes := []rune(reason)
+			reason = string(runes[:77]) + "..."
+		}
+		out = append(out, []string{fired, event, prCell, action, reason})
+	}
+	cli.PrintTable(os.Stdout, headers, out)
 	return nil
 }
 
