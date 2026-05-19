@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/cascade"
@@ -220,7 +218,7 @@ ORDER BY fired_at DESC, id DESC`,
 		}
 		resp = append(resp, row)
 	}
-	if err := rows.Err(); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := rows.Err(); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to iterate cascade rows")
 		return
 	}
