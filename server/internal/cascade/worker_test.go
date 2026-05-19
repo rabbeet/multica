@@ -688,10 +688,12 @@ func TestWorker_NilLoader_LegacyScopeSkip(t *testing.T) {
 // unit tests of ApplyDeployFlip — it asserts the *worker* wires the
 // call in the right place in processOne.
 //
-// PUL-198 Part 2 note: this scenario uses cascade_state='approved' so
-// the worker's new opt-in gate (single_pr_no_spawn) does not
-// short-circuit before reaching the active-run branch — that gate is
-// the focus of TestWorker_PRMergedSinglePR_FlipsButNoSpawn below.
+// PUL-198 Part 2 note: this scenario uses cascade_plan_url (not
+// cascade_state='approved') so the worker's new opt-in gate passes
+// AND DecideDeployFlip still flips. cascade_state='approved' would
+// pass the gate but block the flip — DecideDeployFlip rejects the
+// non-terminal cascade states intentionally to preserve multi-PR
+// semantics where the agent drives the final transition.
 func TestWorker_AutoFlipsToDeployedOnPRMerged(t *testing.T) {
 	pool := workerTestDBPool(t)
 	if pool == nil {
@@ -701,9 +703,11 @@ func TestWorker_AutoFlipsToDeployedOnPRMerged(t *testing.T) {
 	defer cleanup()
 	queries := db.New(pool)
 
-	// Cascade-eligible issue: cascade_state='approved' so the PUL-198
-	// gate passes and the active-run branch is the one we exercise.
-	issueID := insertIssueForDeployFlip(t, pool, ws, 19420, "todo", "approved")
+	// Cascade-eligible via cascade_plan_url (cascade_state stays NULL
+	// so DecideDeployFlip flips). The plan URL is the PUL-198 Part 2
+	// opt-in primitive that lets self-published plans wake the agent.
+	issueID := insertIssueWithPlanURL(t, pool, ws, 19420, "todo",
+		"https://github.com/rabbeet/plans/blob/main/Multica/test.md")
 	rowID := insertRetrigger(t, pool, issueID,
 		"https://github.com/o/r/pull/100", "sha-merged", "pr_merged")
 	defer pool.Exec(context.Background(),
@@ -777,10 +781,12 @@ func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix(t *testing.T) {
 	defer cleanup()
 	queries := db.New(pool)
 
-	// Cascade-eligible (state='approved') so the PUL-198 gate passes
-	// and the spawn path actually runs — that is the path whose
-	// action_reason prefix this test is asserting on.
-	issueID := insertIssueForDeployFlip(t, pool, ws, 19822, "todo", "approved")
+	// Cascade-eligible via cascade_plan_url (cascade_state NULL so
+	// DecideDeployFlip flips) — see TestWorker_AutoFlipsToDeployedOnPRMerged
+	// for the rationale; cascade_state='approved' would pass the gate
+	// but make the flip a no-op (multi-PR semantics).
+	issueID := insertIssueWithPlanURL(t, pool, ws, 19822, "todo",
+		"https://github.com/rabbeet/plans/blob/main/Multica/test.md")
 	rowID := insertRetrigger(t, pool, issueID,
 		"https://github.com/o/r/pull/198", "sha-pul198", "pr_merged")
 	defer pool.Exec(context.Background(),
