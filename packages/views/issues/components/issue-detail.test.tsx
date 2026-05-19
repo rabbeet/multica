@@ -784,5 +784,12 @@ describe("IssueDetail (shared)", () => {
     expect(container.textContent ?? "").not.toContain(
       "Something went wrong displaying this section.",
     );
+
+    // Pin the happy path: at least one StatusIcon SVG actually rendered.
+    // Without this, the guard could regress to `details.to in CONFIG ?
+    // null : <StatusIcon>` and the test above would still pass.
+    expect(
+      container.querySelectorAll('svg[viewBox="0 0 14 14"]').length,
+    ).toBeGreaterThan(0);
   });
 });

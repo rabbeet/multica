@@ -10,7 +10,14 @@ export function PriorityIcon({
   className?: string;
   inheritColor?: boolean;
 }) {
-  const cfg = PRIORITY_CONFIG[priority];
+  // PUL-199: mirror the StatusIcon defensive fallback. Without it, an
+  // out-of-union `priority` arriving via `as IssuePriority` (e.g. from
+  // activity-log `details.to`) would make `cfg.bars` / `cfg.color`
+  // throw and the ErrorBoundary swallow the surrounding section. The
+  // `PRIORITY_CONFIG` declaration stays `Record<IssuePriority, ...>`,
+  // so adding a new priority to the union still triggers a compile
+  // error when its config entry is missing.
+  const cfg = PRIORITY_CONFIG[priority] ?? PRIORITY_CONFIG.none;
 
   // "none" — simple horizontal dashes
   if (cfg.bars === 0) {
