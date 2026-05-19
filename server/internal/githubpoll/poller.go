@@ -274,6 +274,76 @@ func (p *Poller) tickOne(ctx context.Context, repo string) {
 	}
 	p.cfg.Metrics.IncCall(repo, 200)
 
+	// PUL-186 first-run seeding. A repo with no row in
+	// github_poll_cursor returns Cursor{Repo: repo} from cursor.Load
+	// — LastPolledAt is the zero time. cursor.Save writes
+	// LastPolledAt = now() on EVERY successful tick (304, 200, even
+	// the 0-events fall-through below), so a zero LastPolledAt is the
+	// single, sufficient signal that we have never successfully polled
+	// this repo. Single-field discriminator over a three-field check:
+	// `LastEventID == 0` recurs after a legitimate operator rewind
+	// (UPDATE … SET last_event_id = NULL), and we want THAT case to
+	// flow normally — not re-seed.
+	//
+	// On firstRun with events present we record the max event id, save
+	// the cursor, and return WITHOUT forwarding anything to the sink:
+	// those events are pre-existing state, not "events that arrived
+	// while we were watching". This implements the contract documented
+	// in migration 080_github_poll_cursor.up.sql:24, which the original
+	// PR2 wiring never honored.
+	//
+	// On firstRun with empty events we bump a counter and fall through
+	// to the existing loop, which will Save ETag + LastPolledAt over
+	// an empty event set — same row written, no events forwarded,
+	// next tick is not firstRun.
+	if cursor.LastPolledAt.IsZero() {
+		if len(result.Events) > 0 {
+			seeded := 0
+			for _, e := range result.Events {
+				id, idErr := e.NumericID()
+				if idErr != nil {
+					// Mirror the steady-state classifier
+					// observability so operators still see GitHub
+					// payload-drift signal on cold start.
+					p.cfg.Metrics.IncEvent(repo, "schema_mismatch")
+					logger.Warn("githubpoll.poller.schema_mismatch_in_seed",
+						"github_event_id", e.ID,
+						"event_type", e.Type,
+						"error", idErr,
+					)
+					continue
+				}
+				if id > cursor.LastEventID {
+					cursor.LastEventID = id
+				}
+				seeded++
+			}
+			if result.ETag != "" {
+				cursor.ETag = result.ETag
+			}
+			cursor.LastPolledAt = p.now()
+			p.cfg.Metrics.IncEvent(repo, "first_run_seeded")
+			p.cfg.Metrics.MarkTickComplete(repo, cursor.LastPolledAt.Unix())
+			if err := p.cursors.Save(ctx, cursor); err != nil {
+				// Non-fatal: next tick reads no row again, is
+				// firstRun again, re-seeds at then-current HEAD.
+				// Idempotent because nothing was forwarded.
+				logger.Error("githubpoll.poller.cursor_save_failed_seed", "error", err)
+			}
+			logger.Info("githubpoll.poller.first_run_seeded",
+				"events_skipped_as_history", seeded,
+				"last_event_id", cursor.LastEventID,
+				"etag", cursor.ETag,
+			)
+			return
+		}
+		// firstRun && empty events: record the observation so the
+		// cold-start counter is symmetric (seeded vs skipped). Fall
+		// through to the existing loop which will Save the row with
+		// LastPolledAt = now() — next tick is not firstRun.
+		p.cfg.Metrics.IncEvent(repo, "first_run_skipped")
+	}
+
 	// Classify each event in oldest-first order. The on-disk cursor
 	// is Saved exactly ONCE per successful tickOne — after the
 	// whole batch processes. Per-event LastEventID bumps are
