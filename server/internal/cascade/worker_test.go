@@ -687,6 +687,11 @@ func TestWorker_NilLoader_LegacyScopeSkip(t *testing.T) {
 // This test is intentionally separate from the deploy_flip_test.go
 // unit tests of ApplyDeployFlip — it asserts the *worker* wires the
 // call in the right place in processOne.
+//
+// PUL-198 Part 2 note: this scenario uses cascade_state='approved' so
+// the worker's new opt-in gate (single_pr_no_spawn) does not
+// short-circuit before reaching the active-run branch — that gate is
+// the focus of TestWorker_PRMergedSinglePR_FlipsButNoSpawn below.
 func TestWorker_AutoFlipsToDeployedOnPRMerged(t *testing.T) {
 	pool := workerTestDBPool(t)
 	if pool == nil {
@@ -696,8 +701,9 @@ func TestWorker_AutoFlipsToDeployedOnPRMerged(t *testing.T) {
 	defer cleanup()
 	queries := db.New(pool)
 
-	// Single-PR issue: cascade_state NULL, starting status 'todo'.
-	issueID := insertIssueForDeployFlip(t, pool, ws, 19420, "todo", "")
+	// Cascade-eligible issue: cascade_state='approved' so the PUL-198
+	// gate passes and the active-run branch is the one we exercise.
+	issueID := insertIssueForDeployFlip(t, pool, ws, 19420, "todo", "approved")
 	rowID := insertRetrigger(t, pool, issueID,
 		"https://github.com/o/r/pull/100", "sha-merged", "pr_merged")
 	defer pool.Exec(context.Background(),
@@ -771,8 +777,10 @@ func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix(t *testing.T) {
 	defer cleanup()
 	queries := db.New(pool)
 
-	// Single-PR issue, status='todo' so DecideDeployFlip returns true.
-	issueID := insertIssueForDeployFlip(t, pool, ws, 19822, "todo", "")
+	// Cascade-eligible (state='approved') so the PUL-198 gate passes
+	// and the spawn path actually runs — that is the path whose
+	// action_reason prefix this test is asserting on.
+	issueID := insertIssueForDeployFlip(t, pool, ws, 19822, "todo", "approved")
 	rowID := insertRetrigger(t, pool, issueID,
 		"https://github.com/o/r/pull/198", "sha-pul198", "pr_merged")
 	defer pool.Exec(context.Background(),
@@ -840,5 +848,184 @@ func TestWorker_NonPRMergedEventDoesNotFlip(t *testing.T) {
 	}
 	if status == "deployed" {
 		t.Errorf("ci_failure event flipped status to deployed (must only fire on pr_merged)")
+	}
+}
+
+// insertIssueWithPlanURL inserts a single-PR-style issue (cascade_state
+// NULL) that opts in to cascade behaviour via cascade_plan_url. Mirrors
+// insertIssueForDeployFlip but covers the PUL-198 Part 2 primitive.
+func insertIssueWithPlanURL(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	workspaceID uuid.UUID,
+	number int,
+	status, planURL string,
+) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	var creatorID string
+	if err := pool.QueryRow(ctx,
+		`SELECT user_id::text FROM member WHERE workspace_id = $1 LIMIT 1`,
+		workspaceID,
+	).Scan(&creatorID); err != nil {
+		t.Fatalf("lookup owner: %v", err)
+	}
+	var id string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO issue (workspace_id, title, status, creator_type, creator_id, number,
+		                   cascade_plan_url)
+		VALUES ($1, $2, $3, 'member', $4, $5, $6)
+		RETURNING id`,
+		workspaceID, "plan-url test "+status, status, creatorID, number, planURL,
+	).Scan(&id); err != nil {
+		t.Fatalf("insert issue: %v", err)
+	}
+	u, _ := uuid.Parse(id)
+	return u
+}
+
+// TestWorker_PRMergedSinglePR_FlipsButNoSpawn pins the PUL-198 Part 2
+// contract for issues that did NOT opt in to cascade: deploy-flip MUST
+// still run (status → 'deployed', PUL-194 invariant), but the worker
+// MUST NOT spawn. The cascade_retrigger row terminates as
+// action='single_pr_no_spawn' with the deploy_flip prefix carried in
+// action_reason so the audit row tells both halves of the story.
+func TestWorker_PRMergedSinglePR_FlipsButNoSpawn(t *testing.T) {
+	pool := workerTestDBPool(t)
+	if pool == nil {
+		return
+	}
+	ws, cleanup := workerMakeWorkspaceAndUser(t, pool)
+	defer cleanup()
+	queries := db.New(pool)
+
+	// No cascade_state, no cascade_plan_url — the canonical single-PR
+	// issue. status='todo' so DecideDeployFlip eligibly flips.
+	issueID := insertIssueForDeployFlip(t, pool, ws, 19830, "todo", "")
+	rowID := insertRetrigger(t, pool, issueID,
+		"https://github.com/o/r/pull/198", "sha-no-cascade", "pr_merged")
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+	defer pool.Exec(context.Background(),
+		`DELETE FROM issue_status_history WHERE issue_id = $1`, issueID)
+
+	sp := &fakeSpawner{}
+	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 0 {
+		t.Errorf("expected no spawn for non-cascade issue, got %d", sp.spawnCalls.Load())
+	}
+
+	var status string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status FROM issue WHERE id = $1`, issueID).Scan(&status); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if status != "deployed" {
+		t.Errorf("status = %q, want deployed — deploy-flip must run even when gate blocks spawn", status)
+	}
+
+	var action string
+	var reason *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action, action_reason FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action, &reason); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if action != "single_pr_no_spawn" {
+		t.Errorf("action = %q, want single_pr_no_spawn", action)
+	}
+	got := ""
+	if reason != nil {
+		got = *reason
+	}
+	if !strings.HasPrefix(got, "deploy_flip=flipped") {
+		t.Errorf("action_reason = %q, want to start with deploy_flip=flipped (both halves on one line)", got)
+	}
+	if !strings.Contains(got, "single_pr_no_spawn") {
+		t.Errorf("action_reason = %q, want to contain single_pr_no_spawn", got)
+	}
+}
+
+// TestWorker_CascadePlanURL_SpawnsAndPropagatesURL is the positive
+// PUL-198 Part 2 test: an issue with cascade_plan_url set (but no
+// cascade_state) is a self-published cascade. Worker spawns, and the
+// TriggerContext carries the plan URL so the woken agent can locate
+// the governing plan without re-deriving it.
+func TestWorker_CascadePlanURL_SpawnsAndPropagatesURL(t *testing.T) {
+	pool := workerTestDBPool(t)
+	if pool == nil {
+		return
+	}
+	ws, cleanup := workerMakeWorkspaceAndUser(t, pool)
+	defer cleanup()
+	queries := db.New(pool)
+
+	planURL := "https://github.com/rabbeet/plans/blob/main/Multica/2026-05-19-pul-198-pr2-cascade-plan-url.md"
+	issueID := insertIssueWithPlanURL(t, pool, ws, 19831, "in_progress", planURL)
+	rowID := insertRetrigger(t, pool, issueID,
+		"https://github.com/o/r/pull/199", "sha-plan", "pr_review_change")
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+
+	sp := &fakeSpawner{}
+	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 1 {
+		t.Fatalf("expected 1 spawn (cascade_plan_url opt-in), got %d", sp.spawnCalls.Load())
+	}
+	if sp.lastCtx.CascadePlanURL != planURL {
+		t.Errorf("TriggerContext.CascadePlanURL = %q, want %q", sp.lastCtx.CascadePlanURL, planURL)
+	}
+
+	var action string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action); err != nil {
+		t.Fatalf("read action: %v", err)
+	}
+	if action != "spawn" {
+		t.Errorf("action = %q, want spawn", action)
+	}
+}
+
+// TestWorker_NoGate_WhenQueriesNil pins the partial-wiring fall-through:
+// when queries is nil (deploy-flip surface not wired — e.g. unit tests
+// that don't supply it, or a startup where the wiring is incomplete)
+// the PUL-198 Part 2 gate is skipped and the legacy spawn-always
+// behaviour holds. Without this, an incomplete startup would silently
+// drop every cascade event as single_pr_no_spawn — a regression the
+// nil-loader and nil-txPool branches both guard against.
+func TestWorker_NoGate_WhenQueriesNil(t *testing.T) {
+	pool, _, issueID, cleanup := setupWorkerTest(t)
+	if pool == nil {
+		return
+	}
+	defer cleanup()
+
+	// Even though setupWorkerTest sets cascade_state='approved', the
+	// gate doesn't run because queries=nil, so the test would pass
+	// regardless. The point is: no single_pr_no_spawn action appears
+	// when the gate is unwired.
+	rowID := insertRetrigger(t, pool, issueID,
+		"https://github.com/o/r/pull/500", "sha-nogate", "ci_failure")
+	defer pool.Exec(context.Background(),
+		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+
+	sp := &fakeSpawner{}
+	w := NewWorker(pool, sp, nil, nil, nil, nil) // queries=nil
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 1 {
+		t.Fatalf("expected spawn under nil-queries fall-through, got %d", sp.spawnCalls.Load())
+	}
+
+	var action string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action FROM cascade_retrigger WHERE id = $1`, rowID).Scan(&action); err != nil {
+		t.Fatalf("read action: %v", err)
+	}
+	if action == "single_pr_no_spawn" {
+		t.Errorf("action = %q, must NOT be single_pr_no_spawn when gate is unwired", action)
 	}
 }
