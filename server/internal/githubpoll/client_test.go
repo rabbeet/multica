@@ -202,6 +202,68 @@ func TestClient_FetchEvents_StopsAtPagesLimit(t *testing.T) {
 	}
 }
 
+func TestClient_FetchEvents_FirstRunEmpty_DoesNotExceedPagesLimit(t *testing.T) {
+	// PUL-215 regression: GitHub /repos/{owner}/{repo}/events returns
+	// HTTP 422 "pagination is limited for this resource" at page 4.
+	// PUL-201's per-event-type cursor migration left
+	// cursor_by_type={} for repos that had only a legacy
+	// last_event_id, so sinceByType[T] = 0 for every type and every
+	// event passed per-type filtering. The walk never short-circuited
+	// and the poller burned through pages until 422 — seed-on-first-
+	// poll (PUL-186) was never reached because it runs after a
+	// successful FetchEvents.
+	//
+	// The fix is defaultPagesLimit = 3 (strictly below GitHub's
+	// hard limit). This test asserts that a client built with the
+	// production default — no WithPagesLimit override — never asks
+	// for page 4 under the same first-poll-with-empty-cursor shape.
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		page := 1
+		if v := r.URL.Query().Get("page"); v != "" {
+			if p, err := strconv.Atoi(v); err == nil && p > 0 {
+				page = p
+			}
+		}
+		// Mirror GitHub's actual 422 at page 4 — body shape matches
+		// the prod error string verbatim so any future ErrorContains
+		// assertion on the soft-stop follow-up stays anchored.
+		if page > 3 {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			fmt.Fprint(w, `{"message":"In order to keep the API fast for everyone, pagination is limited for this resource."}`)
+			return
+		}
+		evs := []map[string]any{}
+		base := 9999 - (page-1)*100
+		for i := 0; i < 100; i++ {
+			evs = append(evs, map[string]any{
+				"id":      strconv.Itoa(base - i),
+				"type":    "PushEvent",
+				"repo":    map[string]any{"name": "rabbeet/Pulse"},
+				"payload": map[string]any{},
+			})
+		}
+		b, _ := json.Marshal(evs)
+		w.Write(b)
+	}))
+	defer srv.Close()
+
+	// Default client — pagesLimit MUST come from defaultPagesLimit.
+	// nil sinceByType mimics the empty cursor_by_type case.
+	c := NewClient(NewStaticTokenSource("pat")).WithBaseURL(srv.URL)
+	got, err := c.FetchEvents(context.Background(), "rabbeet/Pulse", "", nil)
+	if err != nil {
+		t.Fatalf("FetchEvents: unexpected error %v (the prod symptom — 422 escaping as a hard error)", err)
+	}
+	if hits > 3 {
+		t.Fatalf("hits = %d, want <= 3 (GitHub's /events hard pagination cap)", hits)
+	}
+	if len(got.Events) != hits*100 {
+		t.Errorf("len(Events) = %d, want %d (every event passes the nil sinceByType filter)", len(got.Events), hits*100)
+	}
+}
+
 func TestClient_FetchEvents_RateLimit(t *testing.T) {
 	reset := time.Now().Add(15 * time.Minute).Unix()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
