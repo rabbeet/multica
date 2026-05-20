@@ -323,6 +323,26 @@ func (w *Worker) resolveIssue(ctx context.Context, rowID int64, eventID uuid.UUI
 // wake-ups for single-PR issues, while leaving every existing
 // approval-flow caller untouched.
 func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID uuid.UUID, prURL string, prNumber int32, headSHA, eventType string) {
+	// PUL-212: defensive race-fix for event_types dropped by the
+	// classifier in this version. Rows INSERTed by the previous
+	// classifier (legacy ci_failure / pr_review_change) but not yet
+	// drained by migration 087 must NOT trigger spawn or
+	// ApplyDeployFlip — the rabbeet/Pulse autofix-pipeline (PUL-209
+	// pr-test-autofix.yml + code-review-fix.yml) is canonical for CI
+	// failures and review-changes-requested events; double-Claude
+	// conflict is the regression this PR closes. Drain migration
+	// 087 marks pending rows scope_filter_skip at startup; this
+	// guard handles the deploy→migration race window for any rows
+	// the worker grabs first. The early-exit lands BEFORE
+	// ApplyDeployFlip so legacy rows can't accidentally flip a
+	// status either.
+	if eventType == webhooks.EventTypeCIFailure || eventType == webhooks.EventTypePRReviewChange {
+		w.markRow(ctx, rowID, "scope_filter_skip", "legacy_event_dropped:"+eventType)
+		w.logger.Info("cascade.worker.legacy_event_dropped",
+			"event_id", eventID, "event_type", eventType, "row_id", rowID)
+		return
+	}
+
 	flipPrefix := ""
 	if eventType == webhooks.EventTypePRMerged && w.txPool != nil && w.queries != nil {
 		flipped, err := ApplyDeployFlip(ctx, w.txPool, w.queries, issueID, eventID)

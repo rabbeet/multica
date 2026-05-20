@@ -6,10 +6,18 @@ Test fixtures for the GitHub `/events` polling path.
 
 There are two intentionally-different fixture shapes here, do not mix them:
 
-### Per-event fixtures (`pull_request_*.json`, `push.json`, `workflow_run_*.json`, `check_run_failure.json`)
+### Per-event fixtures (`pull_request_*.json`, `push.json`, `workflow_run_success.json`)
 
 One JSON object = one event payload, as the inbound webhook adapter sees it.
 These cover `classify.go` unit tests that focus on a single event-shape boundary.
+
+PUL-212 removed the `workflow_run_failure.json`, `workflow_run_failure_no_prs.json`,
+`check_run_failure.json`, and `pull_request_review_changes_requested.json` fixtures
+when the classifier branches for those event types were dropped (autofix-pipeline
+in rabbeet/Pulse owns CI / review-comment fixes now). The remaining
+`workflow_run_success.json` and `pull_request_review_approved.json` files stay
+as regression guards — they assert "still ErrSkip after handlers removed"
+across future refactors.
 
 ### Full-page captures (`first_run_events_capture.json`)
 

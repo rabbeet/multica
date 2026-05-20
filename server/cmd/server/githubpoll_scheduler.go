@@ -12,7 +12,6 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/cascade"
 	"github.com/multica-ai/multica/server/internal/githubpoll"
-	"github.com/multica-ai/multica/server/internal/webhooks/github"
 )
 
 // runGithubPoller boots the PUL-166 outbound poller. The function is
@@ -60,18 +59,15 @@ func runGithubPoller(ctx context.Context, pool *pgxpool.Pool, metrics *githubpol
 	// the poller wiring — that's the whole point of the indirection.
 	tokenSource := githubpoll.EnvPATSource{EnvVar: "MULTICA_GITHUB_API_TOKEN"}
 
-	// Resolver: shared with the webhook adapter's commit→PRs
-	// fallback. Constructed only when a PAT is present; without it
-	// the workflow_run / check_run path silently skips events with
-	// empty pull_requests (same behavior as the webhook adapter
-	// pre-PUL-148 fix).
-	var resolver github.PRResolver
-	if token := strings.TrimSpace(os.Getenv("MULTICA_GITHUB_API_TOKEN")); token != "" {
-		resolver = github.NewHTTPResolver(token)
-	}
-
+	// PUL-212: classifier no longer needs a commit→PRs resolver.
+	// The workflow_run / check_run classifiers (which used the resolver
+	// to follow inline pull_requests=[] → API lookup) were removed
+	// alongside the ci_failure event type — see classify.go's
+	// Classifier doc-comment for the autofix-pipeline rationale.
+	// PullRequestEvent carries the PR number inline so no fallback is
+	// needed.
 	client := githubpoll.NewClient(tokenSource)
-	classifier := githubpoll.Classifier{Resolver: resolver}
+	classifier := githubpoll.Classifier{}
 	cursors := githubpoll.NewCursorStore(pool)
 
 	// PR3 sink: writes to cascade_retrigger via the same store the

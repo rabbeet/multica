@@ -12,13 +12,12 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/multica-ai/multica/server/internal/webhooks"
-	"github.com/multica-ai/multica/server/internal/webhooks/github"
 )
 
 // ErrSkip is returned by Classify when the event is structurally
-// valid but is not a cascade trigger (success conclusion, non-merge
-// close, approval review, etc.). Callers count it as "saw and
-// ignored" — distinct from a parse failure. Same role as
+// valid but is not a cascade trigger (non-merge close, irrelevant
+// event type, etc.). Callers count it as "saw and ignored" —
+// distinct from a parse failure. Same role as
 // webhooks.ErrUnsupportedEvent in the inbound path; using a separate
 // sentinel here so the poller can record it in its own metric label
 // without depending on the webhooks package's error vocabulary
@@ -65,14 +64,18 @@ func (e Event) NumericID() (int64, error) {
 // inner repo.name; mismatch is treated as schema_mismatch (defensive
 // against a bug in our pagination logic).
 //
-// Resolver, when non-nil, supplies the same commit→PRs fallback the
-// webhook adapter uses. Without it, workflow_run / check_run events
-// arriving with an empty pull_requests array are skipped (matching
-// the webhook adapter's pre-resolver behavior). Tests inject a fake
-// resolver; production wires github.HTTPResolver via PR2's main.go.
+// PUL-212: cascade now emits only pr_merged from the poll path. CI
+// failure (workflow_run / check_run) and review-changes-requested
+// (pull_request_review) events used to wake the agent in the
+// multica issue, which double-Claude'd with PUL-209's
+// pr-test-autofix.yml + code-review-fix.yml inside the PR. Those
+// classifiers were removed; the switch arms remain (returning
+// ErrSkip) so a future re-enablement is a literal one-line revert.
+// The Resolver field used by the removed classifiers' commit→PRs
+// fallback was removed too — PullRequestEvent has the PR number
+// inline and does not need resolver assistance.
 type Classifier struct {
-	Resolver github.PRResolver
-	Logger   *slog.Logger
+	Logger *slog.Logger
 }
 
 func (c Classifier) logger() *slog.Logger {
@@ -84,6 +87,7 @@ func (c Classifier) logger() *slog.Logger {
 
 // Classify maps a single REST /events item to a TriggerEvent.
 func (c Classifier) Classify(ctx context.Context, repo string, e Event) (*webhooks.TriggerEvent, error) {
+	_ = ctx // accepted for future use; the current arms do not need it
 	if repo == "" {
 		return nil, fmt.Errorf("%w: empty repo", ErrSchemaMismatch)
 	}
@@ -102,14 +106,21 @@ func (c Classifier) Classify(ctx context.Context, repo string, e Event) (*webhoo
 	eventID := EventID(repo, numericID)
 
 	switch e.Type {
-	case "WorkflowRunEvent":
-		return c.classifyWorkflowRun(ctx, repo, eventID, e.Payload)
-	case "CheckRunEvent":
-		return c.classifyCheckRun(ctx, repo, eventID, e.Payload)
 	case "PullRequestEvent":
 		return c.classifyPullRequest(repo, eventID, e.Payload)
-	case "PullRequestReviewEvent":
-		return c.classifyPullRequestReview(repo, eventID, e.Payload)
+	case "WorkflowRunEvent", "CheckRunEvent", "PullRequestReviewEvent":
+		// PUL-212: CI failure and review-changes-requested events used
+		// to wake the agent in the multica issue, which double-Claude'd
+		// with PUL-209's pr-test-autofix.yml + code-review-fix.yml in
+		// rabbeet/Pulse. Autofix-pipeline now owns CI / review-comment
+		// fixes inside the PR; cascade keeps the merged → deployed
+		// transition (pr_merged via PullRequestEvent) and stays out of
+		// failure-mode flows. The arms remain in the switch so a future
+		// re-enablement is a literal one-line revert; the payload
+		// classifiers (classifyWorkflowRun / classifyCheckRun /
+		// classifyPullRequestReview) and their testdata fixtures were
+		// deleted alongside this change.
+		return nil, ErrSkip
 	default:
 		// PushEvent, IssueCommentEvent, ForkEvent, etc. — not cascade
 		// triggers. Skip silently.
@@ -125,101 +136,6 @@ func (c Classifier) Classify(ctx context.Context, repo string, e Event) (*webhoo
 // the REST /events feed — they share the same payload schema. Only
 // the fields the classifier reads are declared; unknown fields are
 // dropped by encoding/json without error.
-
-type workflowRunPayload struct {
-	Action      string `json:"action"`
-	WorkflowRun struct {
-		Conclusion   string `json:"conclusion"`
-		HeadSHA      string `json:"head_sha"`
-		HeadBranch   string `json:"head_branch"`
-		PullRequests []struct {
-			Number  int32  `json:"number"`
-			HTMLURL string `json:"html_url"`
-		} `json:"pull_requests"`
-	} `json:"workflow_run"`
-}
-
-func (c Classifier) classifyWorkflowRun(ctx context.Context, repo string, eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
-	var p workflowRunPayload
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, fmt.Errorf("%w: workflow_run: %v", ErrSchemaMismatch, err)
-	}
-	if p.Action != "completed" {
-		return nil, ErrSkip
-	}
-	if p.WorkflowRun.Conclusion != "failure" {
-		return nil, ErrSkip
-	}
-	if p.WorkflowRun.HeadSHA == "" {
-		return nil, fmt.Errorf("%w: workflow_run missing head_sha", ErrSchemaMismatch)
-	}
-	prs, err := c.resolveOrInlinePRs(ctx, repo, p.WorkflowRun.HeadSHA, p.WorkflowRun.PullRequests)
-	if err != nil {
-		return nil, err
-	}
-	if len(prs) != 1 {
-		return nil, ErrSkip
-	}
-	pr := prs[0]
-	branch := p.WorkflowRun.HeadBranch
-	if branch == "" {
-		branch = pr.Ref
-	}
-	return &webhooks.TriggerEvent{
-		EventID:   eventID,
-		EventType: webhooks.EventTypeCIFailure,
-		PRURL:     pr.HTMLURL,
-		PRNumber:  pr.Number,
-		PRTitle:   pr.Title,
-		HeadSHA:   p.WorkflowRun.HeadSHA,
-		Branch:    branch,
-	}, nil
-}
-
-type checkRunPayload struct {
-	Action   string `json:"action"`
-	CheckRun struct {
-		Conclusion   string `json:"conclusion"`
-		HeadSHA      string `json:"head_sha"`
-		PullRequests []struct {
-			Number  int32  `json:"number"`
-			HTMLURL string `json:"html_url"`
-		} `json:"pull_requests"`
-	} `json:"check_run"`
-}
-
-func (c Classifier) classifyCheckRun(ctx context.Context, repo string, eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
-	var p checkRunPayload
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, fmt.Errorf("%w: check_run: %v", ErrSchemaMismatch, err)
-	}
-	if p.Action != "completed" {
-		return nil, ErrSkip
-	}
-	if p.CheckRun.Conclusion != "failure" {
-		return nil, ErrSkip
-	}
-	if p.CheckRun.HeadSHA == "" {
-		return nil, fmt.Errorf("%w: check_run missing head_sha", ErrSchemaMismatch)
-	}
-	prs, err := c.resolveOrInlinePRs(ctx, repo, p.CheckRun.HeadSHA, p.CheckRun.PullRequests)
-	if err != nil {
-		return nil, err
-	}
-	if len(prs) != 1 {
-		return nil, ErrSkip
-	}
-	pr := prs[0]
-	return &webhooks.TriggerEvent{
-		EventID:   eventID,
-		EventType: webhooks.EventTypeCIFailure,
-		PRURL:     pr.HTMLURL,
-		PRNumber:  pr.Number,
-		PRTitle:   pr.Title,
-		HeadSHA:   p.CheckRun.HeadSHA,
-		Branch:    pr.Ref,
-	}, nil
-}
 
 // pullRequestPayload models the REST /events PullRequestEvent payload.
 //
@@ -252,8 +168,8 @@ func (c Classifier) classifyPullRequest(repo string, eventID uuid.UUID, raw json
 	}
 	// REST /events strips html_url from the pull_request object; the
 	// API `url` is present but not used. Reconstruct from repo + number
-	// the same way resolveOrInlinePRs does for workflow_run / check_run
-	// inline PRs. See PUL-183.
+	// the same way resolveOrInlinePRs used to for workflow_run /
+	// check_run inline PRs. See PUL-183.
 	prURL := p.PullRequest.HTMLURL
 	if prURL == "" {
 		prURL = htmlURLForPR(repo, int(p.Number))
@@ -286,116 +202,13 @@ func (c Classifier) classifyPullRequest(repo string, eventID uuid.UUID, raw json
 		// "labeled", "edited", etc. The "edited" arm was previously
 		// wired to EventTypePRTitleEdit via changes.title.from, but
 		// REST /events strips the `changes` field, so that branch was
-		// poll-blind by construction. Webhook channel remains the
-		// canonical source for pr_title_edit. Re-add a poll arm only
-		// if GitHub stops stripping `changes` from /events. PUL-185.
+		// poll-blind by construction. Webhook channel was the
+		// canonical source for pr_title_edit but the inbound adapter
+		// was removed in PUL-166 PR5, so EventTypePRTitleEdit has no
+		// live source and is marked Deprecated in webhooks/event.go.
+		// PUL-185 + PUL-212.
 		return nil, ErrSkip
 	}
-}
-
-// pullRequestReviewPayload — see pullRequestPayload doc-comment.
-// REST /events strips html_url + title from the pull_request object,
-// and synthesizes action="created" instead of webhook's "submitted".
-type pullRequestReviewPayload struct {
-	Action string `json:"action"`
-	Review struct {
-		State string `json:"state"`
-	} `json:"review"`
-	PullRequest struct {
-		Number  int32  `json:"number"`
-		HTMLURL string `json:"html_url"`
-		Head    struct {
-			SHA string `json:"sha"`
-			Ref string `json:"ref"`
-		} `json:"head"`
-	} `json:"pull_request"`
-}
-
-func (c Classifier) classifyPullRequestReview(repo string, eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
-	var p pullRequestReviewPayload
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, fmt.Errorf("%w: pull_request_review: %v", ErrSchemaMismatch, err)
-	}
-	// REST /events emits action="created" for newly-submitted reviews;
-	// webhook channel uses "submitted". The webhook adapter is
-	// unchanged. PUL-185.
-	if p.Action != "created" {
-		return nil, ErrSkip
-	}
-	// Mirrors the webhook adapter: only changes_requested wakes the
-	// agent. Approvals reduce friction; comments are signal-noise.
-	if !strings.EqualFold(p.Review.State, "changes_requested") {
-		return nil, ErrSkip
-	}
-	if p.PullRequest.Number == 0 {
-		return nil, fmt.Errorf("%w: pull_request_review missing pull_request.number", ErrSchemaMismatch)
-	}
-	// REST also strips html_url here; reconstruct from repo + number.
-	prURL := p.PullRequest.HTMLURL
-	if prURL == "" {
-		prURL = htmlURLForPR(repo, int(p.PullRequest.Number))
-	}
-	return &webhooks.TriggerEvent{
-		EventID:   eventID,
-		EventType: webhooks.EventTypePRReviewChange,
-		PRURL:     prURL,
-		PRNumber:  int(p.PullRequest.Number),
-		// PRTitle deliberately omitted — same reason as
-		// classifyPullRequest above. PUL-185.
-		HeadSHA: p.PullRequest.Head.SHA,
-		Branch:  p.PullRequest.Head.Ref,
-	}, nil
-}
-
-// resolveOrInlinePRs maps the truncated PR objects on
-// workflow_run / check_run into github.PRRef, then falls back to the
-// resolver when the inline list is empty. Returns the resolved set
-// without filtering on count (caller decides whether 0 or >1 maps
-// to ErrSkip — same convention as the webhook adapter).
-func (c Classifier) resolveOrInlinePRs(
-	ctx context.Context,
-	repo string,
-	headSHA string,
-	inline []struct {
-		Number  int32  `json:"number"`
-		HTMLURL string `json:"html_url"`
-	},
-) ([]github.PRRef, error) {
-	prs := make([]github.PRRef, 0, len(inline))
-	for _, pr := range inline {
-		if pr.Number <= 0 {
-			continue
-		}
-		// REST /events truncates pull_requests the same way the webhook
-		// payload does — the API URL is present but html_url is not.
-		// Construct from repo.full_name + /pull/<number>, same as the
-		// webhook adapter does (the URL pattern is GitHub-stable).
-		prs = append(prs, github.PRRef{
-			Number:  int(pr.Number),
-			HTMLURL: htmlURLForPR(repo, int(pr.Number)),
-		})
-	}
-	if len(prs) > 0 || c.Resolver == nil {
-		return prs, nil
-	}
-	// Fallback: commits/{sha}/pulls. Returns empty when no PR contains
-	// the commit (e.g. push on the default branch); same handling as
-	// the webhook adapter — counted as 0 PRs upstream so the
-	// classifier returns ErrSkip.
-	resolved, err := c.Resolver.LookupPRsByCommit(ctx, repo, headSHA)
-	if err != nil {
-		c.logger().Warn("githubpoll.classify.resolver_failed",
-			"repo", repo,
-			"head_sha", headSHA,
-			"error", err,
-		)
-		// Errors during resolver fallback are not classified as
-		// SchemaMismatch — the schema is fine, the lookup failed.
-		// Treat as skip so the poll proceeds, and the operator sees
-		// the warning + retries on the next tick.
-		return nil, ErrSkip
-	}
-	return resolved, nil
 }
 
 // htmlURLForPR builds the public PR URL from "owner/name" and the

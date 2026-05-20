@@ -2,6 +2,8 @@
 
 End-to-end deploy procedure for the event-driven multi-PR cascade. Assumes PR1-PR7 + PR8 are merged. Sections build on each other — do them in order.
 
+> **PUL-212 update (2026-05-20):** the cascade now consumes only `pr_merged` events from the poll path. The `ci_failure` / `pr_review_change` event types are still in the `cascade_retrigger.event_type` CHECK constraint for legacy-row compatibility, but the classifier no longer emits them (autofix-pipeline in `rabbeet/Pulse` — PUL-209 `pr-test-autofix.yml` + `code-review-fix.yml` — owns CI / review-comment fixes inside the PR). The worker has a defensive short-circuit (`worker.go::processOne` early-exit) for legacy rows; migration `087_drain_legacy_failure_events` marks any pending rows `scope_filter_skip` on startup. Phases 1 / 2 below were originally written against the inbound-webhook flow (`MULTICA_CASCADE_WEBHOOK_ENABLED`); the steady-state production flow is now poll-based (`MULTICA_GITHUB_POLL_ENABLED=true`, `MULTICA_GITHUB_POLL_REPOS=<csv>`) per PUL-166. Treat the inbound-webhook references as historical context; the poll-side wiring is documented in `cmd/server/githubpoll_scheduler.go`.
+
 ## Pre-flight checklist
 
 - [ ] All migrations through `074` applied: `make migrate-up`.
