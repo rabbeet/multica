@@ -25,12 +25,17 @@ const defaultAPIBaseURL = "https://api.github.com"
 // context.Done before the next tick fires.
 const defaultClientTimeout = 10 * time.Second
 
-// defaultPagesLimit caps the pagination depth per tick. /events
-// hard-limits to 30 pages × 100 items = 3000 events of history,
-// but a poller running at 30s intervals never needs more than the
-// first 1-2 pages in steady state. The cap is observability — if
-// we ever paginate past it, an alert is louder than infinite walk.
-const defaultPagesLimit = 5
+// defaultPagesLimit caps the pagination depth per tick.
+// /repos/{owner}/{repo}/events returns HTTP 422 "pagination is
+// limited for this resource" at page 4 — observed in prod
+// 2026-05-20 (PUL-215) after PUL-201's per-event-type cursor went
+// live with empty cursor_by_type for rabbeet/Pulse and
+// rabbeet/multica. With sinceByType[T]=0 every event passed
+// per-type filtering, so the walk never short-circuited; the poller
+// burned through pages until 422 and never reached the seed branch.
+// Cap at 3 to stay strictly below GitHub's hard limit; a 30s poller
+// in steady state needs page 1 only (304 most ticks).
+const defaultPagesLimit = 3
 
 // maxResponseBytes caps the response body the decoder will buffer.
 // GitHub's /events response is ~50KB per 100-event page; 10 MiB is
@@ -106,7 +111,8 @@ func (c *Client) WithHTTPClient(h *http.Client) *Client {
 }
 
 // WithPagesLimit overrides the per-tick pagination depth cap.
-// Default 5. 0 or negative resets to default.
+// Default 3 (GitHub's /events hard limit — see defaultPagesLimit).
+// 0 or negative resets to default.
 func (c *Client) WithPagesLimit(n int) *Client {
 	if n <= 0 {
 		n = defaultPagesLimit
@@ -127,7 +133,7 @@ func (c *Client) WithPagesLimit(n int) *Client {
 // Pagination semantics: walk while at least one event on the page
 // survived per-type filtering (i.e. was strictly newer than its
 // type's cursor). Stop on (a) an entirely-stale page, (b) an empty
-// page, or (c) the pagesLimit cap (default 5).
+// page, or (c) the pagesLimit cap (default 3).
 //
 // The "stop on first stale event" shortcut used before PUL-201 does
 // not generalize to multi-stream cursors: GitHub orders events by
