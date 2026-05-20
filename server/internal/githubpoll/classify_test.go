@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/webhooks"
-	"github.com/multica-ai/multica/server/internal/webhooks/github"
 )
 
 // loadFixture reads a JSON file from testdata/ and unmarshals into
@@ -47,25 +46,12 @@ func loadFixture(t *testing.T, name string) Event {
 	return e
 }
 
-// fakeResolver returns a fixed PR set for testing the workflow_run /
-// check_run fallback path. nil PRs simulates "no PR contains this
-// SHA"; errPR simulates a transient API error.
-type fakeResolver struct {
-	prs    []github.PRRef
-	errOut error
-}
-
-func (f fakeResolver) LookupPRsByCommit(_ context.Context, _, _ string) ([]github.PRRef, error) {
-	return f.prs, f.errOut
-}
-
 func TestClassify_Table(t *testing.T) {
 	cases := []struct {
 		name        string
-		fixture     string         // when set, loaded from testdata/
-		inlineEvent *Event         // when set, used instead of fixture (for cases with no on-disk JSON)
+		fixture     string // when set, loaded from testdata/
+		inlineEvent *Event // when set, used instead of fixture (for cases with no on-disk JSON)
 		repo        string
-		resolver    github.PRResolver
 		wantType    string // empty → ErrSkip
 		wantErrIs   error  // non-nil → assertion target
 		wantPRNum   int
@@ -74,61 +60,16 @@ func TestClassify_Table(t *testing.T) {
 		wantBranch  string
 	}{
 		{
-			name:        "workflow_run failure with inline PR",
-			fixture:     "workflow_run_failure.json",
-			repo:        "rabbeet/Pulse",
-			wantType:    webhooks.EventTypeCIFailure,
-			wantPRNum:   530,
-			wantHeadSHA: "18fa800a0b1c2d3e4f5061728394a5b6c7d8e9f0",
-			wantBranch:  "agent-1/pul-157-fix",
-		},
-		{
-			name:      "workflow_run success → skip",
+			// PUL-212: workflow_run events no longer reach a payload
+			// classifier — the switch arm now returns ErrSkip without
+			// touching the payload. Fixture kept (workflow_run_success.json)
+			// to assert this behavior survives across refactors; the
+			// payload shape is irrelevant after PUL-212 because the
+			// classifier short-circuits at the type switch.
+			name:      "workflow_run (success) → skip [PUL-212]",
 			fixture:   "workflow_run_success.json",
 			repo:      "rabbeet/Pulse",
 			wantErrIs: ErrSkip,
-		},
-		{
-			name:      "workflow_run failure, empty pull_requests, no resolver → skip",
-			fixture:   "workflow_run_failure_no_prs.json",
-			repo:      "rabbeet/Pulse",
-			wantErrIs: ErrSkip,
-		},
-		{
-			name:    "workflow_run failure, empty pull_requests, resolver hits → ci_failure",
-			fixture: "workflow_run_failure_no_prs.json",
-			repo:    "rabbeet/Pulse",
-			resolver: fakeResolver{prs: []github.PRRef{
-				{Number: 530, HTMLURL: "https://github.com/rabbeet/Pulse/pull/530",
-					Title: "[PUL-157] fix(scope): repair scope filter",
-					Ref:   "agent-1/pul-157-fix"},
-			}},
-			wantType:    webhooks.EventTypeCIFailure,
-			wantPRNum:   530,
-			wantHeadSHA: "3d26b7f10b1c2d3e4f5061728394a5b6c7d8e9f2",
-			wantBranch:  "agent-1/pul-157-fix",
-		},
-		{
-			name:    "workflow_run failure, empty pull_requests, resolver returns nothing → skip",
-			fixture: "workflow_run_failure_no_prs.json",
-			repo:    "rabbeet/Pulse",
-			resolver: fakeResolver{prs: nil},
-			wantErrIs: ErrSkip,
-		},
-		{
-			name:    "workflow_run failure, empty pull_requests, resolver errors → skip (not schema mismatch)",
-			fixture: "workflow_run_failure_no_prs.json",
-			repo:    "rabbeet/Pulse",
-			resolver: fakeResolver{errOut: errFakeTransient},
-			wantErrIs: ErrSkip,
-		},
-		{
-			name:        "check_run failure",
-			fixture:     "check_run_failure.json",
-			repo:        "rabbeet/Pulse",
-			wantType:    webhooks.EventTypeCIFailure,
-			wantPRNum:   530,
-			wantHeadSHA: "cd38c1120b1c2d3e4f5061728394a5b6c7d8e9f3",
 		},
 		{
 			// Regression for PUL-185 (action-value mismatch): REST
@@ -155,19 +96,11 @@ func TestClassify_Table(t *testing.T) {
 			wantErrIs: ErrSkip,
 		},
 		{
-			// Regression for PUL-185 (action-value mismatch on review
-			// path): REST /events synthesizes action="created", not
-			// webhook's "submitted". Fixture is REST-shaped.
-			name:       "pull_request_review changes_requested → pr_review_change (reconstructed URL)",
-			fixture:    "pull_request_review_changes_requested.json",
-			repo:       "rabbeet/Pulse",
-			wantType:   webhooks.EventTypePRReviewChange,
-			wantPRNum:  534,
-			wantPRURL:  "https://github.com/rabbeet/Pulse/pull/534",
-			wantBranch: "agent-1/pul-162-perf",
-		},
-		{
-			name:      "pull_request_review approved → skip",
+			// PUL-212: pull_request_review (any state) → ErrSkip. The
+			// state="approved" fixture is kept as a regression: even
+			// approval reviews must not surface as TriggerEvents now
+			// that the classifier branch is gone.
+			name:      "pull_request_review approved → skip [PUL-212]",
 			fixture:   "pull_request_review_approved.json",
 			repo:      "rabbeet/Pulse",
 			wantErrIs: ErrSkip,
@@ -202,32 +135,6 @@ func TestClassify_Table(t *testing.T) {
 			repo:      "rabbeet/Pulse",
 			wantErrIs: ErrSchemaMismatch,
 		},
-		{
-			// Negative guard mirroring the case above, for the review
-			// path. Both classifiers share the same post-fix contract
-			// (`number` required, everything else reconstructable).
-			// Action must be "created" (REST shape — PUL-185) or the
-			// classifier short-circuits to ErrSkip before reaching
-			// the number check.
-			name: "pull_request_review missing pull_request.number → schema_mismatch",
-			inlineEvent: &Event{
-				ID:   "33000000098",
-				Type: "PullRequestReviewEvent",
-				Payload: json.RawMessage(`{
-					"action": "created",
-					"review": {"state": "changes_requested"},
-					"pull_request": {
-						"id": 999998,
-						"head": {"sha": "deadbeef", "ref": "x"}
-					}
-				}`),
-				Repo: struct {
-					Name string `json:"name"`
-				}{Name: "rabbeet/Pulse"},
-			},
-			repo:      "rabbeet/Pulse",
-			wantErrIs: ErrSchemaMismatch,
-		},
 	}
 
 	for _, tc := range cases {
@@ -241,7 +148,7 @@ func TestClassify_Table(t *testing.T) {
 			default:
 				t.Fatalf("test case %q has neither fixture nor inlineEvent", tc.name)
 			}
-			c := Classifier{Resolver: tc.resolver}
+			c := Classifier{}
 			got, err := c.Classify(context.Background(), tc.repo, ev)
 
 			if tc.wantErrIs != nil {
@@ -283,8 +190,49 @@ func TestClassify_Table(t *testing.T) {
 	}
 }
 
+// TestClassify_DroppedEventTypes_AllSkip is the PUL-212 regression
+// guard. After dropping the WorkflowRunEvent / CheckRunEvent /
+// PullRequestReviewEvent classifier branches (autofix-pipeline in
+// rabbeet/Pulse owns CI fixes and review-comment fixes now), the
+// switch arms returning ErrSkip must survive across refactors. If a
+// future contributor restores a payload classifier without
+// understanding why these arms exist, this test fails loudly. See
+// PUL-209 (autofix in Pulse) and PUL-212 (cascade deconflict).
+func TestClassify_DroppedEventTypes_AllSkip(t *testing.T) {
+	// Minimal payloads — the classifier short-circuits at the type
+	// switch BEFORE touching the payload, so contents are irrelevant.
+	// Using empty JSON objects keeps the test resilient to future
+	// schema drift on GitHub's side.
+	cases := []struct {
+		name      string
+		eventType string
+	}{
+		{"WorkflowRunEvent", "WorkflowRunEvent"},
+		{"CheckRunEvent", "CheckRunEvent"},
+		{"PullRequestReviewEvent", "PullRequestReviewEvent"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := Event{
+				ID:      "1",
+				Type:    tc.eventType,
+				Payload: json.RawMessage(`{}`),
+			}
+			ev.Repo.Name = "rabbeet/Pulse"
+			c := Classifier{}
+			got, err := c.Classify(context.Background(), "rabbeet/Pulse", ev)
+			if !errors.Is(err, ErrSkip) {
+				t.Errorf("Classify(%s) err = %v, want ErrSkip", tc.eventType, err)
+			}
+			if got != nil {
+				t.Errorf("Classify(%s) returned non-nil TriggerEvent on skip path: %+v", tc.eventType, got)
+			}
+		})
+	}
+}
+
 func TestClassify_RepoMismatch(t *testing.T) {
-	ev := loadFixture(t, "workflow_run_failure.json")
+	ev := loadFixture(t, "pull_request_merged.json")
 	c := Classifier{}
 	_, err := c.Classify(context.Background(), "wrong/repo", ev)
 	if !errors.Is(err, ErrSchemaMismatch) {
@@ -295,7 +243,7 @@ func TestClassify_RepoMismatch(t *testing.T) {
 func TestClassify_MalformedID(t *testing.T) {
 	ev := Event{
 		ID:   "not-a-number",
-		Type: "WorkflowRunEvent",
+		Type: "PullRequestEvent",
 	}
 	ev.Repo.Name = "rabbeet/Pulse"
 	c := Classifier{}
@@ -333,12 +281,6 @@ func TestHTMLURLForPR(t *testing.T) {
 	}
 }
 
-// errFakeTransient is a sentinel for the resolver-errors-out test
-// case. Mirrors the kind of error HTTPResolver would produce on a
-// 5xx; classifier should treat it as ErrSkip (try again next tick),
-// not ErrSchemaMismatch.
-var errFakeTransient = errors.New("simulated transient resolver error")
-
 // Compile-time check: ensure Classifier doesn't expose internal state
 // that would tempt callers to bypass the constructor pattern.
 var _ = (*Classifier)(nil)
@@ -366,11 +308,17 @@ func TestEvent_NumericID(t *testing.T) {
 // detect title edits, so the poll path is structurally blind to that
 // event. The webhook adapter (server/internal/webhooks/github)
 // continues to emit it on its own channel. PUL-185.
+//
+// PUL-212: EventTypeCIFailure and EventTypePRReviewChange are also
+// no longer required — the classifier arms now return ErrSkip
+// because autofix-pipeline in rabbeet/Pulse owns those failure
+// modes inside the PR. The constants remain in webhooks/event.go
+// (marked Deprecated) so the cascade_retrigger CHECK constraint
+// stays compatible with legacy rows during the migration-drain
+// transition.
 func TestClassify_AllEventTypesCovered(t *testing.T) {
 	required := map[string]bool{
-		webhooks.EventTypeCIFailure:      true,
-		webhooks.EventTypePRMerged:       true,
-		webhooks.EventTypePRReviewChange: true,
+		webhooks.EventTypePRMerged: true,
 	}
 	for et := range required {
 		if !strings.Contains(strings.Join(allClassifierOutputs(), ","), et) {
@@ -384,12 +332,12 @@ func TestClassify_AllEventTypesCovered(t *testing.T) {
 // sync manually. If a reviewer adds a new EventType branch, they must
 // add it here too; TestClassify_AllEventTypesCovered fails on
 // omission. EventTypePRTitleEdit is omitted on purpose — see test
-// doc-comment above.
+// doc-comment above. PUL-212 also dropped EventTypeCIFailure and
+// EventTypePRReviewChange — the classifier arms exist but return
+// ErrSkip without producing a TriggerEvent.
 func allClassifierOutputs() []string {
 	return []string{
-		webhooks.EventTypeCIFailure,
 		webhooks.EventTypePRMerged,
-		webhooks.EventTypePRReviewChange,
 	}
 }
 
@@ -443,59 +391,6 @@ func TestClassify_PullRequestMerged_RESTShape(t *testing.T) {
 	// PRTitle must be empty — REST /events does not deliver it, and
 	// the classifier must not invent a value. This is the assertion
 	// that would have caught PUL-185 before ship.
-	if got.PRTitle != "" {
-		t.Errorf("PRTitle = %q, want empty (REST /events strips title)", got.PRTitle)
-	}
-}
-
-// TestClassify_PullRequestReviewCreated_RESTShape mirrors the merge
-// test for the review path. REST emits action="created", not webhook's
-// "submitted". PUL-185.
-func TestClassify_PullRequestReviewCreated_RESTShape(t *testing.T) {
-	ev := Event{
-		ID:   "9600075638",
-		Type: "PullRequestReviewEvent",
-		Payload: json.RawMessage(`{
-			"action": "created",
-			"review": {
-				"id": 4312242098,
-				"state": "changes_requested",
-				"body": "Please reshape this loop."
-			},
-			"pull_request": {
-				"id": 3703537560,
-				"number": 542,
-				"url": "https://api.github.com/repos/rabbeet/Pulse/pulls/542",
-				"head": {
-					"ref": "agent-1/pul-173-stage1-id-fix",
-					"sha": "fac3043abc092ed36bf0530f713f4f972be2281b"
-				},
-				"base": {
-					"ref": "main",
-					"sha": "bee888e001fd5dd403614ec21da342a84d81d68c"
-				}
-			}
-		}`),
-	}
-	ev.Repo.Name = "rabbeet/Pulse"
-
-	c := Classifier{}
-	got, err := c.Classify(context.Background(), "rabbeet/Pulse", ev)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got == nil {
-		t.Fatal("got nil TriggerEvent")
-	}
-	if got.EventType != webhooks.EventTypePRReviewChange {
-		t.Errorf("EventType = %q, want %q", got.EventType, webhooks.EventTypePRReviewChange)
-	}
-	if got.PRURL != "https://github.com/rabbeet/Pulse/pull/542" {
-		t.Errorf("PRURL = %q, want reconstructed html_url", got.PRURL)
-	}
-	if got.PRNumber != 542 {
-		t.Errorf("PRNumber = %d, want 542", got.PRNumber)
-	}
 	if got.PRTitle != "" {
 		t.Errorf("PRTitle = %q, want empty (REST /events strips title)", got.PRTitle)
 	}

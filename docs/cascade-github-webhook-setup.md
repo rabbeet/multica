@@ -1,5 +1,7 @@
 # Cascade GitHub webhook setup (PUL-102)
 
+> **PUL-166 + PUL-212 update (2026-05-20):** the cascade has moved from inbound webhooks (PUL-102 PR1-PR3) to outbound polling of the REST `/events` endpoint (PUL-166). The inbound webhook adapter was removed in PUL-166 PR5; this doc is kept for historical context but production no longer relies on the GitHub App webhook path. Production cascade setup today is: set `MULTICA_GITHUB_POLL_ENABLED=true` + `MULTICA_GITHUB_POLL_REPOS=<csv of owner/name>` + `MULTICA_GITHUB_API_TOKEN=<PAT>` (read-only scopes: `public_repo` or `repo`); see `cmd/server/githubpoll_scheduler.go` for the live wiring. PUL-212 further narrowed the event surface: only `pull_request` `action=merged` produces a `cascade_retrigger` row now (the `workflow_run` / `check_run` / `pull_request_review` arms return `ErrSkip` because PUL-209's autofix-pipeline in `rabbeet/Pulse` owns CI / review-comment fixes inside the PR).
+
 The cascade webhook subsystem (`server/internal/webhooks/` + `server/internal/webhooks/github/`) consumes GitHub events to drive multi-PR agent cascades. This doc covers App install, secret rotation, and verification.
 
 ## Prerequisites

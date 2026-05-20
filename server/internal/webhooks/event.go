@@ -33,11 +33,48 @@ import (
 // CHECK constraint in migration 072 — PR4's worker persists rows with the
 // same string verbatim, so a typo here would surface as a CHECK violation
 // at insert time, which is exactly the safety net we want.
+//
+// Post-PUL-212 status:
+//   - EventTypePRMerged is the only event type any current Source adapter
+//     actively emits. ApplyDeployFlip (PUL-194) and the cascade-gate
+//     spawn path (PUL-198 Part 2) both fire on this value.
+//   - EventTypeCIFailure and EventTypePRReviewChange constants are kept
+//     for cascade_retrigger CHECK-constraint compatibility while legacy
+//     rows drain (migration 087 marks pending ones scope_filter_skip;
+//     processed historical rows stay in the table for audit). The
+//     classifier no longer emits these values (autofix-pipeline in
+//     rabbeet/Pulse owns CI / review-comment fixes — PUL-209). A
+//     follow-up PR in 1-2 months will drop both constants and the
+//     CHECK arm together once the audit window is clear.
+//   - EventTypePRTitleEdit has been source-less since PUL-166 PR5
+//     removed the inbound webhook adapter and PUL-185 confirmed REST
+//     /events strips the `changes` block needed to detect title edits
+//     on the poll path. Kept for the same CHECK-constraint reason as
+//     the two above; same removal plan.
 const (
-	EventTypeCIFailure     = "ci_failure"
-	EventTypePRMerged      = "pr_merged"
+	// Deprecated: no Source adapter emits this since PUL-212.
+	// Autofix-pipeline in rabbeet/Pulse (PUL-209 pr-test-autofix.yml)
+	// is the canonical channel for CI failure handling. Constant
+	// remains so the cascade_retrigger CHECK constraint stays
+	// compatible with legacy rows. Remove with the CHECK arm in a
+	// follow-up PR after the legacy rows have drained.
+	EventTypeCIFailure = "ci_failure"
+
+	EventTypePRMerged = "pr_merged"
+
+	// Deprecated: no Source adapter emits this since PUL-212.
+	// Autofix-pipeline in rabbeet/Pulse (PUL-209 code-review-fix.yml)
+	// owns review-comment fixes. Constant remains for legacy-row
+	// CHECK compatibility; see EventTypeCIFailure note above.
 	EventTypePRReviewChange = "pr_review_change"
-	EventTypePRTitleEdit   = "pr_title_edit"
+
+	// Deprecated: no Source adapter has emitted this since PUL-166
+	// PR5 removed the inbound webhook adapter (the only source that
+	// could observe `changes.title`) and PUL-185 confirmed the poll
+	// path is structurally blind (REST /events strips `changes`).
+	// Constant remains for legacy-row CHECK compatibility; same
+	// removal plan as the two Deprecated constants above.
+	EventTypePRTitleEdit = "pr_title_edit"
 )
 
 // TriggerEvent is the source-agnostic shape that every Source adapter must

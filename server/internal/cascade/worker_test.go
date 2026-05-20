@@ -149,7 +149,7 @@ func TestWorker_HappyPath_SpawnsAndMarks(t *testing.T) {
 	}
 	defer cleanup()
 
-	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/1", "sha-1", "ci_failure")
+	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/1", "sha-1", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
@@ -195,7 +195,7 @@ func TestWorker_ActiveRun_QueuesPending(t *testing.T) {
 	}
 	defer cleanup()
 
-	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/2", "sha-q", "pr_review_change")
+	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/2", "sha-q", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
@@ -247,14 +247,14 @@ func TestWorker_LoopGuard_TripsAfterThreshold(t *testing.T) {
 	for i, sha := range []string{"a", "b", "c"} {
 		_, err := pool.Exec(context.Background(), `
             INSERT INTO cascade_retrigger (event_id, issue_id, pr_url, pr_number, head_sha, event_type, action, processed_at)
-            VALUES ($1, $2, $3, $4, $5, 'ci_failure', 'spawn', now() - interval '1 hour')`,
+            VALUES ($1, $2, $3, $4, $5, 'pr_title_edit', 'spawn', now() - interval '1 hour')`,
 			uuid.New(), issueID, prURL, i+1, sha)
 		if err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
 	// 4th retrigger — should trip the guard.
-	rowID := insertRetrigger(t, pool, issueID, prURL, "d", "ci_failure")
+	rowID := insertRetrigger(t, pool, issueID, prURL, "d", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE pr_url = $1`, prURL)
 
 	sp := &fakeSpawner{}
@@ -300,7 +300,7 @@ func TestWorker_SpawnFailureLeavesRowUnprocessed(t *testing.T) {
 	}
 	defer cleanup()
 
-	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/3", "sha-fail", "ci_failure")
+	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/3", "sha-fail", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{spawnErr: errors.New("spawn boom")}
@@ -338,7 +338,7 @@ func TestWorker_SpawnGatedMarksRowSkipped(t *testing.T) {
 	}
 	defer cleanup()
 
-	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/4", "sha-gated", "ci_failure")
+	rowID := insertRetrigger(t, pool, issueID, "https://github.com/o/r/pull/4", "sha-gated", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{spawnErr: fmt.Errorf("no assignee: %w", ErrSpawnGated)}
@@ -397,7 +397,7 @@ func TestWorker_NoIssueIDIsScopeSkip(t *testing.T) {
 	var rowID int64
 	if err := pool.QueryRow(context.Background(), `
         INSERT INTO cascade_retrigger (event_id, pr_url, pr_number, head_sha, event_type)
-        VALUES ($1, 'u', 1, 's', 'ci_failure')
+        VALUES ($1, 'u', 1, 's', 'pr_title_edit')
         RETURNING id`, uuid.New()).Scan(&rowID); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -533,7 +533,7 @@ func TestWorker_ResolveIssue_PRTitleMatchTriggersLookup(t *testing.T) {
 	defer cleanup()
 
 	rowID := insertRetriggerWithLookup(t, pool,
-		"[PUL-9001] feat: x", "some/feat", "https://github.com/o/r/pull/1", "lookup-sha", "ci_failure")
+		"[PUL-9001] feat: x", "some/feat", "https://github.com/o/r/pull/1", "lookup-sha", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	loader := &fakeLoader{resp: issueID}
@@ -570,7 +570,7 @@ func TestWorker_ResolveIssue_BranchFallbackTriggersLookup(t *testing.T) {
 	defer cleanup()
 
 	rowID := insertRetriggerWithLookup(t, pool,
-		"title was edited", "agent-1/PUL-7777-foo", "u", "branch-sha", "ci_failure")
+		"title was edited", "agent-1/PUL-7777-foo", "u", "branch-sha", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	loader := &fakeLoader{resp: issueID}
@@ -594,7 +594,7 @@ func TestWorker_ResolveIssue_IssueNotFoundIsScopeSkip(t *testing.T) {
 	defer cleanup()
 
 	rowID := insertRetriggerWithLookup(t, pool,
-		"[PUL-1] x", "agent-1/pul-1-x", "u", "s", "ci_failure")
+		"[PUL-1] x", "agent-1/pul-1-x", "u", "s", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	loader := &fakeLoader{err: ErrIssueNotFound}
@@ -624,7 +624,7 @@ func TestWorker_ResolveIssue_LoaderRetryableErrorLeavesRow(t *testing.T) {
 	defer cleanup()
 
 	rowID := insertRetriggerWithLookup(t, pool,
-		"[PUL-1] x", "", "u", "s", "ci_failure")
+		"[PUL-1] x", "", "u", "s", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	loader := &fakeLoader{err: errors.New("transient db error")}
@@ -658,7 +658,7 @@ func TestWorker_NilLoader_LegacyScopeSkip(t *testing.T) {
 	defer cleanup()
 
 	rowID := insertRetriggerWithLookup(t, pool,
-		"[PUL-1] x", "agent-1/pul-1-x", "u", "s", "ci_failure")
+		"[PUL-1] x", "agent-1/pul-1-x", "u", "s", "pr_title_edit")
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
@@ -956,8 +956,13 @@ func openAndClosePool(t *testing.T) *pgxpool.Pool {
 }
 
 // TestWorker_NonPRMergedEventDoesNotFlip locks in the negative side:
-// only event_type='pr_merged' triggers the auto-flip. ci_failure,
-// pr_review_change, etc. continue to spawn-without-flip.
+// only event_type='pr_merged' triggers the auto-flip. pr_title_edit
+// (still in the CHECK constraint as a Deprecated value after PUL-212)
+// continues to spawn-without-flip. Legacy ci_failure /
+// pr_review_change rows go through the PUL-212 CQ2 short-circuit
+// (see TestWorker_LegacyCIFailureRow_ScopeFilterSkips below) and
+// also never flip; this test pins the eventType != pr_merged branch
+// in ApplyDeployFlip's outer guard which is the orthogonal defense.
 func TestWorker_NonPRMergedEventDoesNotFlip(t *testing.T) {
 	pool := workerTestDBPool(t)
 	if pool == nil {
@@ -969,7 +974,7 @@ func TestWorker_NonPRMergedEventDoesNotFlip(t *testing.T) {
 
 	issueID := insertIssueForDeployFlip(t, pool, ws, 19421, "in_progress", "")
 	rowID := insertRetrigger(t, pool, issueID,
-		"https://github.com/o/r/pull/101", "sha-ci", "ci_failure")
+		"https://github.com/o/r/pull/101", "sha-ci", "pr_title_edit")
 	defer pool.Exec(context.Background(),
 		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
@@ -983,7 +988,7 @@ func TestWorker_NonPRMergedEventDoesNotFlip(t *testing.T) {
 		t.Fatalf("read status: %v", err)
 	}
 	if status == "deployed" {
-		t.Errorf("ci_failure event flipped status to deployed (must only fire on pr_merged)")
+		t.Errorf("pr_title_edit event flipped status to deployed (must only fire on pr_merged)")
 	}
 
 	// PUL-202 regression-guard: non-pr_merged events must never leak a
@@ -1113,7 +1118,7 @@ func TestWorker_CascadePlanURL_SpawnsAndPropagatesURL(t *testing.T) {
 	planURL := "https://github.com/rabbeet/plans/blob/main/Multica/2026-05-19-pul-198-pr2-cascade-plan-url.md"
 	issueID := insertIssueWithPlanURL(t, pool, ws, 19831, "in_progress", planURL)
 	rowID := insertRetrigger(t, pool, issueID,
-		"https://github.com/o/r/pull/199", "sha-plan", "pr_review_change")
+		"https://github.com/o/r/pull/199", "sha-plan", "pr_title_edit")
 	defer pool.Exec(context.Background(),
 		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
@@ -1157,7 +1162,7 @@ func TestWorker_NoGate_WhenQueriesNil(t *testing.T) {
 	// regardless. The point is: no single_pr_no_spawn action appears
 	// when the gate is unwired.
 	rowID := insertRetrigger(t, pool, issueID,
-		"https://github.com/o/r/pull/500", "sha-nogate", "ci_failure")
+		"https://github.com/o/r/pull/500", "sha-nogate", "pr_title_edit")
 	defer pool.Exec(context.Background(),
 		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
@@ -1176,5 +1181,126 @@ func TestWorker_NoGate_WhenQueriesNil(t *testing.T) {
 	}
 	if action == "single_pr_no_spawn" {
 		t.Errorf("action = %q, must NOT be single_pr_no_spawn when gate is unwired", action)
+	}
+}
+
+// TestWorker_LegacyCIFailureRow_ScopeFilterSkips is the PUL-212 CQ2
+// regression: a cascade_retrigger row with event_type='ci_failure'
+// (left over from before this PR's classifier change, not yet drained
+// by migration 087) must short-circuit in processOne to
+// scope_filter_skip with action_reason='legacy_event_dropped:ci_failure',
+// without calling Spawn or ApplyDeployFlip. This closes the
+// deploy → migration race window: rabbeet/Pulse's pr-test-autofix.yml
+// is the canonical handler for CI failures; cascade waking the agent
+// in the multica issue at the same time = double-Claude conflict.
+//
+// The test uses an issue with cascade_state='approved' (opt-in
+// cascade) to exercise the worst case: without CQ2, that issue would
+// have been spawn'd by the worker after the classifier was already
+// gone.
+func TestWorker_LegacyCIFailureRow_ScopeFilterSkips(t *testing.T) {
+	pool, _, issueID, cleanup := setupWorkerTest(t)
+	if pool == nil {
+		return
+	}
+	defer cleanup()
+
+	// Direct INSERT mimics a row left over from the pre-PUL-212
+	// classifier. cascade_state on the issue is 'approved' (set by
+	// setupWorkerTest) so the spawn-eligibility gate would fire if
+	// CQ2 weren't there.
+	var rowID int64
+	if err := pool.QueryRow(context.Background(), `
+        INSERT INTO cascade_retrigger (event_id, issue_id, pr_url, pr_number, head_sha, event_type)
+        VALUES ($1, $2, $3, 99, $4, 'ci_failure')
+        RETURNING id`,
+		uuid.New(), issueID, "https://github.com/o/r/pull/212", "sha-cq2-ci",
+	).Scan(&rowID); err != nil {
+		t.Fatalf("insert legacy ci_failure row: %v", err)
+	}
+	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+
+	sp := &fakeSpawner{}
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 0 {
+		t.Errorf("CQ2 guard must not spawn for legacy ci_failure row, got %d spawn(s)", sp.spawnCalls.Load())
+	}
+
+	var action string
+	var reason *string
+	var processedAt *time.Time
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action, action_reason, processed_at FROM cascade_retrigger WHERE id = $1`,
+		rowID).Scan(&action, &reason, &processedAt); err != nil {
+		t.Fatalf("read back row: %v", err)
+	}
+	if action != "scope_filter_skip" {
+		t.Errorf("action = %q, want scope_filter_skip", action)
+	}
+	if processedAt == nil {
+		t.Errorf("processed_at not set — CQ2 must mark the row processed")
+	}
+	wantReason := "legacy_event_dropped:ci_failure"
+	if reason == nil || *reason != wantReason {
+		got := "<nil>"
+		if reason != nil {
+			got = *reason
+		}
+		t.Errorf("action_reason = %q, want %q", got, wantReason)
+	}
+}
+
+// TestWorker_LegacyPRReviewChangeRow_ScopeFilterSkips mirrors the
+// ci_failure CQ2 test for the other dropped event type. Same
+// rationale: rabbeet/Pulse's code-review-fix.yml owns
+// changes_requested review fixes inside the PR; cascade waking the
+// agent in the multica issue at the same time = double-Claude
+// conflict. The CQ2 guard short-circuits before the issue's
+// cascade_state='approved' opt-in would have caused a spawn.
+func TestWorker_LegacyPRReviewChangeRow_ScopeFilterSkips(t *testing.T) {
+	pool, _, issueID, cleanup := setupWorkerTest(t)
+	if pool == nil {
+		return
+	}
+	defer cleanup()
+
+	var rowID int64
+	if err := pool.QueryRow(context.Background(), `
+        INSERT INTO cascade_retrigger (event_id, issue_id, pr_url, pr_number, head_sha, event_type)
+        VALUES ($1, $2, $3, 99, $4, 'pr_review_change')
+        RETURNING id`,
+		uuid.New(), issueID, "https://github.com/o/r/pull/213", "sha-cq2-rev",
+	).Scan(&rowID); err != nil {
+		t.Fatalf("insert legacy pr_review_change row: %v", err)
+	}
+	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+
+	sp := &fakeSpawner{}
+	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w.PollOnce(context.Background())
+
+	if sp.spawnCalls.Load() != 0 {
+		t.Errorf("CQ2 guard must not spawn for legacy pr_review_change row, got %d spawn(s)", sp.spawnCalls.Load())
+	}
+
+	var action string
+	var reason *string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT action, action_reason FROM cascade_retrigger WHERE id = $1`,
+		rowID).Scan(&action, &reason); err != nil {
+		t.Fatalf("read back row: %v", err)
+	}
+	if action != "scope_filter_skip" {
+		t.Errorf("action = %q, want scope_filter_skip", action)
+	}
+	wantReason := "legacy_event_dropped:pr_review_change"
+	if reason == nil || *reason != wantReason {
+		got := "<nil>"
+		if reason != nil {
+			got = *reason
+		}
+		t.Errorf("action_reason = %q, want %q", got, wantReason)
 	}
 }
