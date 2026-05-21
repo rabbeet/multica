@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
+	"github.com/multica-ai/multica/server/internal/cascade"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/githubpoll"
 	"github.com/multica-ai/multica/server/internal/realtime"
@@ -17,8 +18,13 @@ type RegistryOptions struct {
 	Realtime   *realtime.Metrics
 	DaemonWS   *daemonws.Metrics
 	GithubPoll *githubpoll.Metrics
-	Version    string
-	Commit     string
+	// Cascade is the PUL-220 observability surface — same shared
+	// instance the cmd/server.startCascadeBackground wiring passes
+	// into cascade.NewWorker, so the counters the worker bumps are
+	// visible on /metrics scrape.
+	Cascade *cascade.Metrics
+	Version string
+	Commit  string
 }
 
 type Registry struct {
@@ -52,6 +58,9 @@ func NewRegistry(opts RegistryOptions) *Registry {
 	}
 	if opts.GithubPoll != nil {
 		reg.MustRegister(NewGithubPollCollector(opts.GithubPoll))
+	}
+	if opts.Cascade != nil {
+		reg.MustRegister(NewCascadeCollector(opts.Cascade))
 	}
 
 	return &Registry{
