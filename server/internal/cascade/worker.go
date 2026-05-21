@@ -131,6 +131,14 @@ type Worker struct {
 	// SetDeployFlipDeps.
 	txPool  *pgxpool.Pool
 	queries *db.Queries
+
+	// metrics is the PUL-220 observability surface. Nil-safe:
+	// IncLegacyEventDropped short-circuits on a nil receiver, so
+	// every NewWorker call site that predates this field keeps
+	// working by passing nil. Production wires a real *Metrics via
+	// cmd/server.startCascadeBackground so the cascade /metrics
+	// counter ticks on every CQ2 short-circuit.
+	metrics *Metrics
 }
 
 // NewWorker constructs the worker. Spawner is required; pool must
@@ -144,7 +152,13 @@ type Worker struct {
 // sqlc Queries). Both must be non-nil for ApplyDeployFlip to run on
 // pr_merged events; either nil → auto-flip is silently skipped (pre-PUL-194
 // behaviour, agent-mediated path still works for cascade-final case).
-func NewWorker(pool pgConn, spawner Spawner, loader IssueLoader, txPool *pgxpool.Pool, queries *db.Queries, logger *slog.Logger) *Worker {
+//
+// metrics is the PUL-220 observability surface (legacy-event-dropped
+// counter for PUL-217's drain gate). Nil-safe: pass nil and the
+// counter is silently disabled with no behaviour change. The
+// positional-arg pile-up here is acknowledged tech debt — the next
+// field add should refactor to a Cfg struct.
+func NewWorker(pool pgConn, spawner Spawner, loader IssueLoader, txPool *pgxpool.Pool, queries *db.Queries, metrics *Metrics, logger *slog.Logger) *Worker {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -154,6 +168,7 @@ func NewWorker(pool pgConn, spawner Spawner, loader IssueLoader, txPool *pgxpool
 		loader:  loader,
 		txPool:  txPool,
 		queries: queries,
+		metrics: metrics,
 		logger:  logger,
 	}
 }
@@ -338,6 +353,11 @@ func (w *Worker) processOne(ctx context.Context, rowID int64, eventID, issueID u
 	// status either.
 	if eventType == webhooks.EventTypeCIFailure || eventType == webhooks.EventTypePRReviewChange {
 		w.markRow(ctx, rowID, "scope_filter_skip", "legacy_event_dropped:"+eventType)
+		// PUL-220: tick the Prometheus counter for the CQ2 drain
+		// signal. Nil-safe — wired in production via
+		// cmd/server.startCascadeBackground; tests that don't supply
+		// metrics keep working with no observable difference.
+		w.metrics.IncLegacyEventDropped(eventType)
 		w.logger.Info("cascade.worker.legacy_event_dropped",
 			"event_id", eventID, "event_type", eventType, "row_id", rowID)
 		return

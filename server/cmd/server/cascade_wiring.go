@@ -65,7 +65,9 @@ func startCascadeBackground(pool *pgxpool.Pool, queries *db.Queries, taskSvc *se
 	// PUL-194: pool + queries are also passed through so the worker can run
 	// the server-side deploy auto-flip on pr_merged events. Both nil means
 	// the auto-flip is silently disabled — keep them populated in production.
-	worker := cascade.NewWorker(pool, spawner, loader, pool, queries, logger)
+	// PUL-220: metrics is wired by main.go in a later commit; nil here keeps
+	// the build green and disables the legacy-event-dropped counter until then.
+	worker := cascade.NewWorker(pool, spawner, loader, pool, queries, nil, logger)
 
 	// Reconciler nudge: log only at this wiring level. The
 	// notify.Bridge (PR6) is the proper surface for off-platform

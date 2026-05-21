@@ -153,7 +153,7 @@ func TestWorker_HappyPath_SpawnsAndMarks(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -201,7 +201,7 @@ func TestWorker_ActiveRun_QueuesPending(t *testing.T) {
 	sp := &fakeSpawner{}
 	sp.hasActive.Store(true) // active run on this issue
 
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -258,7 +258,7 @@ func TestWorker_LoopGuard_TripsAfterThreshold(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE pr_url = $1`, prURL)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -304,7 +304,7 @@ func TestWorker_SpawnFailureLeavesRowUnprocessed(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{spawnErr: errors.New("spawn boom")}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -342,7 +342,7 @@ func TestWorker_SpawnGatedMarksRowSkipped(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{spawnErr: fmt.Errorf("no assignee: %w", ErrSpawnGated)}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -404,7 +404,7 @@ func TestWorker_NoIssueIDIsScopeSkip(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -457,7 +457,7 @@ func TestWorker_DrainPending_SpawnsWhenPending(t *testing.T) {
 	}
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil)
 	w.DrainPending(context.Background(), issueID)
 
 	if sp.spawnCalls.Load() != 1 {
@@ -484,7 +484,7 @@ func TestWorker_DrainPending_NoPendingIsQuiet(t *testing.T) {
 	defer cleanup()
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil)
 	w.DrainPending(context.Background(), issueID)
 	if sp.spawnCalls.Load() != 0 {
 		t.Errorf("expected no spawn when no pending, got %d", sp.spawnCalls.Load())
@@ -538,7 +538,7 @@ func TestWorker_ResolveIssue_PRTitleMatchTriggersLookup(t *testing.T) {
 
 	loader := &fakeLoader{resp: issueID}
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, loader, nil, nil, nil)
+	w := NewWorker(pool, sp, loader, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if loader.calls != 1 || loader.want != "PUL-9001" {
@@ -575,7 +575,7 @@ func TestWorker_ResolveIssue_BranchFallbackTriggersLookup(t *testing.T) {
 
 	loader := &fakeLoader{resp: issueID}
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, loader, nil, nil, nil)
+	w := NewWorker(pool, sp, loader, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if loader.calls != 1 || loader.want != "PUL-7777" {
@@ -599,7 +599,7 @@ func TestWorker_ResolveIssue_IssueNotFoundIsScopeSkip(t *testing.T) {
 
 	loader := &fakeLoader{err: ErrIssueNotFound}
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, loader, nil, nil, nil)
+	w := NewWorker(pool, sp, loader, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -629,7 +629,7 @@ func TestWorker_ResolveIssue_LoaderRetryableErrorLeavesRow(t *testing.T) {
 
 	loader := &fakeLoader{err: errors.New("transient db error")}
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, loader, nil, nil, nil)
+	w := NewWorker(pool, sp, loader, nil, nil, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -662,7 +662,7 @@ func TestWorker_NilLoader_LegacyScopeSkip(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil) // nil loader
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil) // nil loader
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -720,7 +720,7 @@ func TestWorker_AutoFlipsToDeployedOnPRMerged(t *testing.T) {
 	sp := &fakeSpawner{}
 	sp.hasActive.Store(true) // force queue_pending → return path
 
-	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w := NewWorker(pool, sp, nil, pool, queries, nil, nil)
 	w.PollOnce(context.Background())
 
 	// Pipeline-side: queue_pending was the path taken.
@@ -795,7 +795,7 @@ func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix(t *testing.T) {
 		`DELETE FROM issue_status_history WHERE issue_id = $1`, issueID)
 
 	sp := &fakeSpawner{} // no active run → spawn path
-	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w := NewWorker(pool, sp, nil, pool, queries, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -851,7 +851,7 @@ func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix_Noop(t *testing.T) {
 		`DELETE FROM issue_status_history WHERE issue_id = $1`, issueID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w := NewWorker(pool, sp, nil, pool, queries, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -913,7 +913,7 @@ func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix_Failed(t *testing.T)
 	closedFlipPool := openAndClosePool(t)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, closedFlipPool, queries, nil)
+	w := NewWorker(pool, sp, nil, closedFlipPool, queries, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -983,7 +983,7 @@ func TestWorker_NonPRMergedEventDoesNotFlip(t *testing.T) {
 		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w := NewWorker(pool, sp, nil, pool, queries, nil, nil)
 	w.PollOnce(context.Background())
 
 	var status string
@@ -1068,7 +1068,7 @@ func TestWorker_PRMergedSinglePR_FlipsButNoSpawn(t *testing.T) {
 		`DELETE FROM issue_status_history WHERE issue_id = $1`, issueID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w := NewWorker(pool, sp, nil, pool, queries, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -1127,7 +1127,7 @@ func TestWorker_CascadePlanURL_SpawnsAndPropagatesURL(t *testing.T) {
 		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, pool, queries, nil)
+	w := NewWorker(pool, sp, nil, pool, queries, nil, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -1171,7 +1171,7 @@ func TestWorker_NoGate_WhenQueriesNil(t *testing.T) {
 		`DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil) // queries=nil
+	w := NewWorker(pool, sp, nil, nil, nil, nil, nil) // queries=nil
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 1 {
@@ -1225,7 +1225,8 @@ func TestWorker_LegacyCIFailureRow_ScopeFilterSkips(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	metrics := NewMetrics()
+	w := NewWorker(pool, sp, nil, nil, nil, metrics, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -1253,6 +1254,13 @@ func TestWorker_LegacyCIFailureRow_ScopeFilterSkips(t *testing.T) {
 			got = *reason
 		}
 		t.Errorf("action_reason = %q, want %q", got, wantReason)
+	}
+	// PUL-220: assert the Prometheus counter ticked. Without this
+	// the wiring could silently break (counter stays 0 in prod) and
+	// the metric we built to gate PUL-217 would lie about drain
+	// completion.
+	if got := metrics.Snapshot().LegacyEventDropped["ci_failure"]; got != 1 {
+		t.Errorf("metrics.LegacyEventDropped[ci_failure] = %d, want 1", got)
 	}
 }
 
@@ -1282,7 +1290,8 @@ func TestWorker_LegacyPRReviewChangeRow_ScopeFilterSkips(t *testing.T) {
 	defer pool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
 
 	sp := &fakeSpawner{}
-	w := NewWorker(pool, sp, nil, nil, nil, nil)
+	metrics := NewMetrics()
+	w := NewWorker(pool, sp, nil, nil, nil, metrics, nil)
 	w.PollOnce(context.Background())
 
 	if sp.spawnCalls.Load() != 0 {
@@ -1306,5 +1315,10 @@ func TestWorker_LegacyPRReviewChangeRow_ScopeFilterSkips(t *testing.T) {
 			got = *reason
 		}
 		t.Errorf("action_reason = %q, want %q", got, wantReason)
+	}
+	// PUL-220: assert the per-event-type counter tick. Mirrors the
+	// ci_failure check above; same rationale.
+	if got := metrics.Snapshot().LegacyEventDropped["pr_review_change"]; got != 1 {
+		t.Errorf("metrics.LegacyEventDropped[pr_review_change] = %d, want 1", got)
 	}
 }
