@@ -12,6 +12,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/cascade"
 	"github.com/multica-ai/multica/server/internal/githubpoll"
+	"github.com/multica-ai/multica/server/internal/webhooks/github"
 )
 
 // runGithubPoller boots the PUL-166 outbound poller. The function is
@@ -59,15 +60,20 @@ func runGithubPoller(ctx context.Context, pool *pgxpool.Pool, metrics *githubpol
 	// the poller wiring — that's the whole point of the indirection.
 	tokenSource := githubpoll.EnvPATSource{EnvVar: "MULTICA_GITHUB_API_TOKEN"}
 
-	// PUL-212: classifier no longer needs a commit→PRs resolver.
-	// The workflow_run / check_run classifiers (which used the resolver
-	// to follow inline pull_requests=[] → API lookup) were removed
-	// alongside the ci_failure event type — see classify.go's
-	// Classifier doc-comment for the autofix-pipeline rationale.
-	// PullRequestEvent carries the PR number inline so no fallback is
-	// needed.
+	// PUL-216 reintroduces the resolver — narrower role than its
+	// pre-PUL-212 shape. PullRequestEvent carries the PR number
+	// inline, but REST /events strips pull_request.title; the
+	// classifier uses the resolver only to hydrate that title via
+	// GET /repos/{owner}/{repo}/pulls/{n}. Without a PAT the
+	// resolver is nil and hydration is skipped silently — the
+	// cascade worker falls through to the branch regex.
+	var resolver github.PRResolver
+	if token := strings.TrimSpace(os.Getenv("MULTICA_GITHUB_API_TOKEN")); token != "" {
+		resolver = github.NewHTTPResolver(token)
+	}
+
 	client := githubpoll.NewClient(tokenSource)
-	classifier := githubpoll.Classifier{}
+	classifier := githubpoll.Classifier{Resolver: resolver}
 	cursors := githubpoll.NewCursorStore(pool)
 
 	// PR3 sink: writes to cascade_retrigger via the same store the

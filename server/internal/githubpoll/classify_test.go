@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/webhooks"
+	"github.com/multica-ai/multica/server/internal/webhooks/github"
 )
 
 // loadFixture reads a JSON file from testdata/ and unmarshals into
@@ -46,18 +47,46 @@ func loadFixture(t *testing.T, name string) Event {
 	return e
 }
 
+// errFakeTransient simulates a 5xx / network error from the resolver
+// so the hydratePRTitle warn-log-and-swallow path is exercised.
+var errFakeTransient = errors.New("simulated transient resolver error")
+
+// fakeResolver satisfies github.PRResolver for unit tests. PUL-216
+// added LookupPRTitle to the interface; LookupPRsByCommit is kept
+// as a no-op stub because the workflow_run / check_run classifiers
+// that consumed it were removed in PUL-212.
+//
+// title / titleErr drive the PUL-216 hydration path: a non-empty
+// title flows into TriggerEvent.PRTitle; a non-nil titleErr stays
+// internal (logged + swallowed by hydratePRTitle so the event
+// still classifies).
+type fakeResolver struct {
+	title    string
+	titleErr error
+}
+
+func (f fakeResolver) LookupPRsByCommit(_ context.Context, _, _ string) ([]github.PRRef, error) {
+	return nil, nil
+}
+
+func (f fakeResolver) LookupPRTitle(_ context.Context, _ string, _ int) (string, error) {
+	return f.title, f.titleErr
+}
+
 func TestClassify_Table(t *testing.T) {
 	cases := []struct {
 		name        string
 		fixture     string // when set, loaded from testdata/
 		inlineEvent *Event // when set, used instead of fixture (for cases with no on-disk JSON)
 		repo        string
+		resolver    github.PRResolver
 		wantType    string // empty → ErrSkip
 		wantErrIs   error  // non-nil → assertion target
 		wantPRNum   int
 		wantPRURL   string // expected PRURL; verifies the html_url reconstruction path
 		wantHeadSHA string
 		wantBranch  string
+		wantPRTitle string // PUL-216 — asserts hydrated title flows through; empty == nil Resolver or 404
 	}{
 		{
 			// PUL-212: workflow_run events no longer reach a payload
@@ -135,6 +164,55 @@ func TestClassify_Table(t *testing.T) {
 			repo:      "rabbeet/Pulse",
 			wantErrIs: ErrSchemaMismatch,
 		},
+		{
+			// PUL-216: PR-merged event with resolver-supplied title.
+			// REST /events strips pull_request.title; the classifier
+			// hydrates via the resolver and the title must surface
+			// on TriggerEvent.PRTitle so LookupIssueIdentifier can
+			// use it as the primary signal.
+			name:        "pull_request merged + title hydrated → PRTitle populated [PUL-216]",
+			fixture:     "pull_request_merged.json",
+			repo:        "rabbeet/Pulse",
+			resolver:    fakeResolver{title: "[PUL-196] feat(refresh): dispatch"},
+			wantType:    webhooks.EventTypePRMerged,
+			wantPRNum:   530,
+			wantPRURL:   "https://github.com/rabbeet/Pulse/pull/530",
+			wantHeadSHA: "cd38c1120b1c2d3e4f5061728394a5b6c7d8e9f3",
+			wantBranch:  "agent-1/pul-157-fix",
+			wantPRTitle: "[PUL-196] feat(refresh): dispatch",
+		},
+		{
+			// PUL-216: resolver returns an error (5xx, timeout). The
+			// classifier logs + leaves PRTitle empty and the event
+			// still classifies. Regression guard: title hydration
+			// must never block classification.
+			name:        "pull_request merged + title resolver errors → event classifies, PRTitle empty [PUL-216]",
+			fixture:     "pull_request_merged.json",
+			repo:        "rabbeet/Pulse",
+			resolver:    fakeResolver{titleErr: errFakeTransient},
+			wantType:    webhooks.EventTypePRMerged,
+			wantPRNum:   530,
+			wantPRURL:   "https://github.com/rabbeet/Pulse/pull/530",
+			wantHeadSHA: "cd38c1120b1c2d3e4f5061728394a5b6c7d8e9f3",
+			wantBranch:  "agent-1/pul-157-fix",
+			wantPRTitle: "",
+		},
+		{
+			// PUL-216: resolver returns empty title (PR 404 / 403 —
+			// both treated as soft-empty by LookupPRTitle). Event
+			// still classifies; downstream branch regex carries the
+			// identifier.
+			name:        "pull_request merged + title resolver 404 → event classifies, PRTitle empty [PUL-216]",
+			fixture:     "pull_request_merged.json",
+			repo:        "rabbeet/Pulse",
+			resolver:    fakeResolver{title: ""},
+			wantType:    webhooks.EventTypePRMerged,
+			wantPRNum:   530,
+			wantPRURL:   "https://github.com/rabbeet/Pulse/pull/530",
+			wantHeadSHA: "cd38c1120b1c2d3e4f5061728394a5b6c7d8e9f3",
+			wantBranch:  "agent-1/pul-157-fix",
+			wantPRTitle: "",
+		},
 	}
 
 	for _, tc := range cases {
@@ -148,7 +226,7 @@ func TestClassify_Table(t *testing.T) {
 			default:
 				t.Fatalf("test case %q has neither fixture nor inlineEvent", tc.name)
 			}
-			c := Classifier{}
+			c := Classifier{Resolver: tc.resolver}
 			got, err := c.Classify(context.Background(), tc.repo, ev)
 
 			if tc.wantErrIs != nil {
@@ -180,6 +258,13 @@ func TestClassify_Table(t *testing.T) {
 			}
 			if tc.wantBranch != "" && got.Branch != tc.wantBranch {
 				t.Errorf("Branch = %q, want %q", got.Branch, tc.wantBranch)
+			}
+			if got.PRTitle != tc.wantPRTitle {
+				// PUL-216: explicit check (including empty) — title
+				// hydration failure must surface as "" not the
+				// previous row's value. Default zero is "" so always
+				// asserting catches both empty and non-empty cases.
+				t.Errorf("PRTitle = %q, want %q", got.PRTitle, tc.wantPRTitle)
 			}
 			// EventID is deterministic from (repo, numericID); regression
 			// guard is in idempotency_test.go.
@@ -388,11 +473,12 @@ func TestClassify_PullRequestMerged_RESTShape(t *testing.T) {
 	if got.PRNumber != 37 {
 		t.Errorf("PRNumber = %d, want 37", got.PRNumber)
 	}
-	// PRTitle must be empty — REST /events does not deliver it, and
-	// the classifier must not invent a value. This is the assertion
-	// that would have caught PUL-185 before ship.
+	// PRTitle must be empty here — REST /events does not deliver it
+	// and Classifier{}.Resolver is nil so PUL-216's hydratePRTitle
+	// also returns "". The TestClassify_Table cases above cover the
+	// non-nil-resolver flow.
 	if got.PRTitle != "" {
-		t.Errorf("PRTitle = %q, want empty (REST /events strips title)", got.PRTitle)
+		t.Errorf("PRTitle = %q, want empty (REST /events strips title; no resolver to hydrate)", got.PRTitle)
 	}
 }
 

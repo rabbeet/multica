@@ -34,13 +34,23 @@ type PRRef struct {
 	Ref     string // head ref / branch name
 }
 
-// PRResolver resolves the set of PRs that a commit SHA belongs to.
-// Implemented in production by HTTPResolver (GitHub REST API);
-// tests substitute a fake. Returning an empty slice means "no PRs
-// match this SHA" (e.g. push on the default branch) — distinct
-// from an error, which means "lookup failed, try again later".
+// PRResolver resolves PR metadata for the cascade poller.
+//
+// LookupPRsByCommit returns the open PRs that contain a commit SHA.
+// An empty slice means "no PRs match" (e.g. push on the default
+// branch); an error means "lookup failed, try again later".
+//
+// LookupPRTitle returns the title of a single PR by number. Empty
+// string + nil error means "no title available" (PR not visible,
+// token lacks scope) — callers treat this identically to the
+// REST /events strip case and fall through to the branch regex.
+// Errors mean "transient lookup failure"; callers log + leave
+// PRTitle empty so classification never blocks on title hydration.
+// Added in PUL-216 to give the cascade classifier the title that
+// REST /events strips from pull_request payloads.
 type PRResolver interface {
 	LookupPRsByCommit(ctx context.Context, repoFullName, headSHA string) ([]PRRef, error)
+	LookupPRTitle(ctx context.Context, repoFullName string, prNumber int) (string, error)
 }
 
 // defaultAPIBaseURL is the public GitHub REST endpoint. Overridable
@@ -174,4 +184,61 @@ func (r *HTTPResolver) LookupPRsByCommit(ctx context.Context, repoFullName, head
 		})
 	}
 	return out, nil
+}
+
+// LookupPRTitle fetches the PR title via GET /repos/{owner}/{repo}/pulls/{n}.
+//
+// Used by the poll classifier (server/internal/githubpoll) to
+// hydrate pr_title when REST /events strips pull_request.title
+// from PR-related event payloads. PUL-216.
+//
+// Returns ("", nil) when GitHub answers 404 (PR not visible) or 403
+// (token lacks pull_request:read scope). Both surface as "no title
+// hint" upstream — the classifier leaves PRTitle empty and the
+// cascade worker falls through to the branch regex. Other non-2xx
+// responses surface as errors so transient API failures are
+// visible in the warn-log.
+func (r *HTTPResolver) LookupPRTitle(ctx context.Context, repoFullName string, prNumber int) (string, error) {
+	if repoFullName == "" || prNumber <= 0 {
+		return "", fmt.Errorf("github resolver: empty repo or pr number")
+	}
+	if strings.ContainsAny(repoFullName, "?#") {
+		return "", fmt.Errorf("github resolver: invalid repo characters")
+	}
+
+	endpoint := fmt.Sprintf("%s/repos/%s/pulls/%d", r.baseURL, repoFullName, prNumber)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("github resolver: build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if r.token != "" {
+		req.Header.Set("Authorization", "Bearer "+r.token)
+	}
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("github resolver: request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
+		return "", nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", fmt.Errorf("github resolver: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var raw struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		if errors.Is(err, io.EOF) {
+			return "", nil
+		}
+		return "", fmt.Errorf("github resolver: decode: %w", err)
+	}
+	return raw.Title, nil
 }
