@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/cascade"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/githubpoll"
@@ -263,6 +264,15 @@ func main() {
 	// runGithubPoller call below sees the same pointer.
 	pollMetrics := githubpoll.NewMetrics()
 
+	// PUL-220: shared cascade metrics. Constructed unconditionally
+	// for the same reasons as pollMetrics — the Prometheus collector
+	// can register the (empty) surface, and startCascadeBackground
+	// gets the SAME pointer so the worker's CQ2 IncLegacyEventDropped
+	// shows up on /metrics. When MULTICA_CASCADE_WEBHOOK_ENABLED is
+	// off the worker never starts and the counter stays at zero,
+	// which is the right /metrics shape (empty Snapshot → no series).
+	cascadeMetrics := cascade.NewMetrics()
+
 	metricsConfig := obsmetrics.ConfigFromEnv()
 	var metricsServer *http.Server
 	var httpMetrics *obsmetrics.HTTPMetrics
@@ -272,6 +282,7 @@ func main() {
 			Realtime:   realtime.M,
 			DaemonWS:   daemonws.M,
 			GithubPoll: pollMetrics,
+			Cascade:    cascadeMetrics,
 			Version:    version,
 			Commit:     commit,
 		})
@@ -296,6 +307,7 @@ func main() {
 		DaemonHub:          daemonHub,
 		DaemonWakeup:       daemonWakeup,
 		HeartbeatScheduler: heartbeatScheduler,
+		CascadeMetrics:     cascadeMetrics,
 	})
 
 	srv := &http.Server{

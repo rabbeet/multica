@@ -6,10 +6,13 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/multica-ai/multica/server/internal/cascade"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
+	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -402,5 +405,91 @@ func countSubscribers(t *testing.T, issueID string) int {
 		t.Fatalf("count subscribers: %v", err)
 	}
 	return n
+}
+
+// TestCascadeWiring_LegacyEventCounter_EndToEnd is the PUL-220
+// wiring regression guard: it proves that a single *cascade.Metrics
+// instance, threaded through the registry AND through the worker,
+// surfaces a CQ2 short-circuit on /metrics. Without this test, any
+// wiring step (RouterOptions.CascadeMetrics dropped,
+// startCascadeBackground forgetting to pass metrics into NewWorker,
+// the registry no longer registering the collector) would leave the
+// counter silently flat in production — which is the exact "drain
+// complete" false signal PUL-220 was built to eliminate.
+//
+// The test bypasses startCascadeBackground (which spawns goroutines
+// under context.Background() that would leak across test runs) and
+// instead directly assembles the same pieces that wiring chain
+// produces: one shared metrics pointer feeds both NewCascadeCollector
+// (Prometheus scrape side) and NewWorker (Inc call site).
+func TestCascadeWiring_LegacyEventCounter_EndToEnd(t *testing.T) {
+	if testPool == nil {
+		t.Skip("integration test DB not available")
+	}
+	ctx := context.Background()
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
+
+	// One cascade.Metrics — same pointer goes to BOTH ends of the
+	// wiring chain. Mirrors what cmd/server/main.go does when
+	// constructing the registry + RouterOptions.
+	cascadeMetrics := cascade.NewMetrics()
+
+	// Insert a row carrying the deprecated event_type the CQ2 guard
+	// short-circuits. issue_id is set so the worker takes the
+	// resolved-issue branch (avoiding the IssueLoader path which
+	// isn't relevant to this regression).
+	issueUUID := util.MustParseUUID(issueID)
+	var rowID int64
+	if err := testPool.QueryRow(ctx, `
+        INSERT INTO cascade_retrigger (event_id, issue_id, pr_url, pr_number, head_sha, event_type)
+        VALUES ($1, $2, $3, 220, $4, 'ci_failure')
+        RETURNING id`,
+		uuid.New(), issueUUID, "https://github.com/rabbeet/multica/pull/220", "sha-pul220",
+	).Scan(&rowID); err != nil {
+		t.Fatalf("insert legacy ci_failure row: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM cascade_retrigger WHERE id = $1`, rowID)
+	})
+
+	// Worker side of the chain: same metrics pointer the registry
+	// will read. fakeSpawner is nil here because the CQ2 short-circuit
+	// returns before any Spawn call (we'd panic on the nil deref
+	// otherwise — which is exactly the regression guard: if CQ2 ever
+	// stops short-circuiting on ci_failure, this nil deref would
+	// surface immediately).
+	worker := cascade.NewWorker(testPool, &noSpawnSpawner{}, nil, nil, nil, cascadeMetrics, nil)
+	worker.PollOnce(ctx)
+
+	// Registry side: register the CascadeCollector against the same
+	// pointer the worker just bumped. Gather and assert the exact
+	// wire-format series shows up.
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(obsmetrics.NewCascadeCollector(cascadeMetrics))
+
+	want := `
+# HELP multica_cascade_worker_legacy_event_dropped_total Cascade rows short-circuited by the PUL-212 CQ2 guard for dropped event_types (ci_failure, pr_review_change). Steady-state expected trajectory: monotonic decline to zero. When rate() is flat at zero for ~7 days, PUL-217 (drop the guard + cascade_retrigger CHECK arm) is safe. Always query via rate(); server restart resets the in-process counter (Prometheus handles counter resets for rate but not for increase).
+# TYPE multica_cascade_worker_legacy_event_dropped_total counter
+multica_cascade_worker_legacy_event_dropped_total{event_type="ci_failure"} 1
+`
+	if err := testutil.GatherAndCompare(reg, strings.NewReader(want),
+		"multica_cascade_worker_legacy_event_dropped_total"); err != nil {
+		t.Errorf("end-to-end scrape mismatch — wiring chain may be broken: %v", err)
+	}
+}
+
+// noSpawnSpawner asserts the CQ2 short-circuit fires: any Spawn or
+// HasActiveRun call would mean processOne fell through CQ2, which is
+// a regression.
+type noSpawnSpawner struct{}
+
+func (noSpawnSpawner) Spawn(_ context.Context, _ uuid.UUID, _ cascade.TriggerContext) error {
+	panic("cascade.Spawner.Spawn called — PUL-212 CQ2 guard regression")
+}
+
+func (noSpawnSpawner) HasActiveRun(_ context.Context, _ uuid.UUID) (bool, error) {
+	panic("cascade.Spawner.HasActiveRun called — PUL-212 CQ2 guard regression")
 }
 
