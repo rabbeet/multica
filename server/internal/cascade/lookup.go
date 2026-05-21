@@ -37,20 +37,40 @@ func matchTitle(s string) string {
 	return normalize(m[1])
 }
 
-// branchRegex matches the cascade convention: agent-<N>/<prefix>-<N>-<slug>.
-// Anchored to start. Underscores and dots inside the slug are
-// allowed (branches may not include `..` per git, but isolated dots
-// are valid). The branch regex deliberately does NOT match
-// pre-cascade conventions like `feat/pul-1-foo` — the scope filter
-// only triggers for agent-driven PRs.
-var branchRegex = regexp.MustCompile(`^agent-[0-9a-zA-Z]+/([A-Za-z]+-[0-9]+)(?:[-_./].*)?$`)
+// branchRegex matches the cascade conventions seen in production:
+//
+//	agent-<N>/<prefix>-<N>-<slug>      canonical, dash separator
+//	agent-<N>/<prefix><N>-<slug>       no dash between prefix and number
+//	agent-<N>/<sub>-<prefix><N>-<slug> sub-classifier prefix (e.g. u1-)
+//
+// Anchored to start. Pre-cascade conventions like `feat/pul-1-foo`
+// do not match — the scope filter only triggers for agent-driven
+// PRs. The alpha prefix is required to be >=2 chars so single-letter
+// unit ids like "u1" / "v2" do not get mistaken for an identifier.
+//
+// The sub-classifier group uses lazy `??` so the engine prefers to
+// skip it and bind the first <alpha-2+><digits> pair as the
+// identifier. Greedy `?` would let `pul196-` be consumed as a "sub"
+// and resolve `agent-1/pul196-pr5.x-slug` to PR-5 instead of
+// PUL-196 — RE2's leftmost-first matching makes the failure
+// deterministic, not stochastic. See PUL-216 for the empirical
+// trace against all observed prod-miss branches.
+//
+// When the prefix-N pair matches a name no workspace recognises
+// (e.g. "PR-5" from `agent-1/pr5-only-rev`), downstream IssueLoader
+// returns ErrIssueNotFound and the worker scope_filter_skips with a
+// distinct reason — strictly safer than a stricter regex that
+// silently drops real PUL-N rows.
+var branchRegex = regexp.MustCompile(
+	`^agent-[0-9a-zA-Z]+/(?:[a-zA-Z0-9.]+-)??([A-Za-z]{2,})-?([0-9]+)(?:[-_./].*)?$`,
+)
 
 func matchBranch(s string) string {
 	m := branchRegex.FindStringSubmatch(s)
-	if len(m) != 2 {
+	if len(m) != 3 {
 		return ""
 	}
-	return normalize(m[1])
+	return normalize(m[1]) + "-" + m[2]
 }
 
 // normalize uppercases the alpha prefix so look-ups against
