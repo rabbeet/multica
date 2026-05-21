@@ -80,6 +80,14 @@ type RouterOptions struct {
 	// BatchedHeartbeatScheduler here so the caller can also drive Run/Stop;
 	// tests leave this nil and get the legacy synchronous behavior.
 	HeartbeatScheduler handler.HeartbeatScheduler
+	// CascadeMetrics is the PUL-220 observability surface. main.go
+	// constructs one instance and threads it both into
+	// obsmetrics.NewRegistry (so the Prometheus collector reads it on
+	// /metrics scrape) AND through here into startCascadeBackground
+	// (so the cascade worker bumps the same counter). nil-safe — the
+	// cascade worker's metrics field accepts nil and silently skips
+	// the Inc.
+	CascadeMetrics *cascade.Metrics
 }
 
 func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client, opts RouterOptions) chi.Router {
@@ -220,7 +228,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// GetIssueByNumber). Single-tenant by construction; multi-
 	// workspace routing via a repo→workspace mapping table is a
 	// follow-up.
-	startCascadeBackground(pool, queries, h.TaskService, bus, nil)
+	startCascadeBackground(pool, queries, h.TaskService, bus, opts.CascadeMetrics, nil)
 
 	// WebSocket
 	mc := &membershipChecker{queries: queries}

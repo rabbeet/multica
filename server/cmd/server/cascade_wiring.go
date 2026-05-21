@@ -33,7 +33,7 @@ import (
 // The goroutines run under context.Background() for the process
 // lifetime. Graceful shutdown of cascade work is a follow-up; the
 // router doesn't currently expose a shutdown context to threads.
-func startCascadeBackground(pool *pgxpool.Pool, queries *db.Queries, taskSvc *service.TaskService, bus *events.Bus, logger *slog.Logger) {
+func startCascadeBackground(pool *pgxpool.Pool, queries *db.Queries, taskSvc *service.TaskService, bus *events.Bus, metrics *cascade.Metrics, logger *slog.Logger) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -65,9 +65,10 @@ func startCascadeBackground(pool *pgxpool.Pool, queries *db.Queries, taskSvc *se
 	// PUL-194: pool + queries are also passed through so the worker can run
 	// the server-side deploy auto-flip on pr_merged events. Both nil means
 	// the auto-flip is silently disabled — keep them populated in production.
-	// PUL-220: metrics is wired by main.go in a later commit; nil here keeps
-	// the build green and disables the legacy-event-dropped counter until then.
-	worker := cascade.NewWorker(pool, spawner, loader, pool, queries, nil, logger)
+	// PUL-220: metrics carries the cascade.Metrics that main.go also passed
+	// into the Prometheus registry; nil here disables the legacy-event-dropped
+	// counter but leaves CQ2 short-circuit behaviour intact.
+	worker := cascade.NewWorker(pool, spawner, loader, pool, queries, metrics, logger)
 
 	// Reconciler nudge: log only at this wiring level. The
 	// notify.Bridge (PR6) is the proper surface for off-platform
