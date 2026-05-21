@@ -840,7 +840,9 @@ func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix_Noop(t *testing.T) {
 	queries := db.New(pool)
 
 	// status='deployed' makes DecideDeployFlip return false → noop path.
-	issueID := insertIssueForDeployFlip(t, pool, ws, 20211, "deployed", "")
+	// plan_url opts the issue into the PUL-198 cascade-gate so spawn fires.
+	issueID := insertIssueWithPlanURL(t, pool, ws, 20211, "deployed",
+		"https://github.com/rabbeet/plans/blob/main/Multica/test.md")
 	rowID := insertRetrigger(t, pool, issueID,
 		"https://github.com/o/r/pull/202", "sha-pul202-noop", "pr_merged")
 	defer pool.Exec(context.Background(),
@@ -898,7 +900,9 @@ func TestWorker_PRMergedActionReasonCarriesDeployFlipPrefix_Failed(t *testing.T)
 
 	// status='todo' would normally flip; the closed txPool forces
 	// ApplyDeployFlip to error before DecideDeployFlip even runs.
-	issueID := insertIssueForDeployFlip(t, pool, ws, 20212, "todo", "")
+	// plan_url opts the issue into the PUL-198 cascade-gate so spawn fires.
+	issueID := insertIssueWithPlanURL(t, pool, ws, 20212, "todo",
+		"https://github.com/rabbeet/plans/blob/main/Multica/test.md")
 	rowID := insertRetrigger(t, pool, issueID,
 		"https://github.com/o/r/pull/203", "sha-pul202-failed", "pr_merged")
 	defer pool.Exec(context.Background(),
