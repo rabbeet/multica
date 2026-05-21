@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/multica-ai/multica/server/internal/webhooks"
+	"github.com/multica-ai/multica/server/internal/webhooks/github"
 )
 
 // ErrSkip is returned by Classify when the event is structurally
@@ -71,11 +72,16 @@ func (e Event) NumericID() (int64, error) {
 // pr-test-autofix.yml + code-review-fix.yml inside the PR. Those
 // classifiers were removed; the switch arms remain (returning
 // ErrSkip) so a future re-enablement is a literal one-line revert.
-// The Resolver field used by the removed classifiers' commit→PRs
-// fallback was removed too — PullRequestEvent has the PR number
-// inline and does not need resolver assistance.
+//
+// PUL-216 reintroduces Resolver — narrower role than its pre-PUL-212
+// shape (used only by classifyPullRequest to hydrate PRTitle, since
+// REST /events strips pull_request.title). When nil, hydration is
+// skipped silently and the cascade worker falls through to the
+// branch regex. Tests inject a fake; production wires
+// github.HTTPResolver via cmd/server/githubpoll_scheduler.go.
 type Classifier struct {
-	Logger *slog.Logger
+	Resolver github.PRResolver
+	Logger   *slog.Logger
 }
 
 func (c Classifier) logger() *slog.Logger {
@@ -87,7 +93,6 @@ func (c Classifier) logger() *slog.Logger {
 
 // Classify maps a single REST /events item to a TriggerEvent.
 func (c Classifier) Classify(ctx context.Context, repo string, e Event) (*webhooks.TriggerEvent, error) {
-	_ = ctx // accepted for future use; the current arms do not need it
 	if repo == "" {
 		return nil, fmt.Errorf("%w: empty repo", ErrSchemaMismatch)
 	}
@@ -107,7 +112,7 @@ func (c Classifier) Classify(ctx context.Context, repo string, e Event) (*webhoo
 
 	switch e.Type {
 	case "PullRequestEvent":
-		return c.classifyPullRequest(repo, eventID, e.Payload)
+		return c.classifyPullRequest(ctx, repo, eventID, e.Payload)
 	case "WorkflowRunEvent", "CheckRunEvent", "PullRequestReviewEvent":
 		// PUL-212: CI failure and review-changes-requested events used
 		// to wake the agent in the multica issue, which double-Claude'd
@@ -158,13 +163,27 @@ type pullRequestPayload struct {
 	} `json:"pull_request"`
 }
 
-func (c Classifier) classifyPullRequest(repo string, eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
+func (c Classifier) classifyPullRequest(ctx context.Context, repo string, eventID uuid.UUID, raw json.RawMessage) (*webhooks.TriggerEvent, error) {
 	var p pullRequestPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, fmt.Errorf("%w: pull_request: %v", ErrSchemaMismatch, err)
 	}
 	if p.Number == 0 {
 		return nil, fmt.Errorf("%w: pull_request missing number", ErrSchemaMismatch)
+	}
+	// Action gate runs BEFORE title hydration so non-merge events
+	// (opened / closed-unmerged / reopened / labeled / edited / …)
+	// short-circuit without burning an HTTP round-trip on a title
+	// the caller will throw away. PUL-216. The "edited" arm was
+	// previously wired to EventTypePRTitleEdit via changes.title.from,
+	// but REST /events strips the `changes` field, so that branch
+	// was poll-blind by construction. Webhook channel was the
+	// canonical source for pr_title_edit but the inbound adapter
+	// was removed in PUL-166 PR5, so EventTypePRTitleEdit has no
+	// live source and is marked Deprecated in webhooks/event.go.
+	// PUL-185 + PUL-212.
+	if p.Action != "merged" {
+		return nil, ErrSkip
 	}
 	// REST /events strips html_url from the pull_request object; the
 	// API `url` is present but not used. Reconstruct from repo + number
@@ -174,41 +193,43 @@ func (c Classifier) classifyPullRequest(repo string, eventID uuid.UUID, raw json
 	if prURL == "" {
 		prURL = htmlURLForPR(repo, int(p.Number))
 	}
-	common := webhooks.TriggerEvent{
-		EventID:  eventID,
-		PRURL:    prURL,
-		PRNumber: int(p.Number),
-		// PRTitle deliberately omitted: REST /events strips
-		// pull_request.title. cascade.Worker.resolveIssue
-		// (server/internal/cascade/lookup.go) falls back to the
-		// agent-<N>/<prefix>-<n>-<slug> branch regex when title is
-		// empty, so agent-driven PRs (the only ones the cascade
-		// scope filter accepts via InScope) still resolve correctly.
-		// Human PRs with `[PUL-N]` in title but a non-agent branch
-		// would scope-skip on the poll path; webhook channel remains
-		// canonical for that narrow edge case. See PUL-185.
+	// REST /events synthesizes a "merged" action for completed PR
+	// merges (the webhook channel emits action="closed" with
+	// pull_request.merged=true). PUL-185.
+	return &webhooks.TriggerEvent{
+		EventID:   eventID,
+		EventType: webhooks.EventTypePRMerged,
+		PRURL:     prURL,
+		PRNumber:  int(p.Number),
+		// REST /events strips pull_request.title from PR-related
+		// payloads, but the title is the primary signal for
+		// LookupIssueIdentifier. PUL-216 hydrates it via REST API.
+		// Empty title on hydration failure is fine — the cascade
+		// worker falls through to the branch regex.
+		PRTitle: c.hydratePRTitle(ctx, repo, int(p.Number)),
 		HeadSHA: p.PullRequest.Head.SHA,
 		Branch:  p.PullRequest.Head.Ref,
+	}, nil
+}
+
+// hydratePRTitle fetches the PR title via the resolver when REST
+// /events stripped it. Returns "" on any failure or when the
+// resolver is unconfigured — callers leave PRTitle empty and the
+// downstream LookupIssueIdentifier falls through to the branch
+// regex. Failures are logged but never propagated, since title
+// hydration is best-effort and must never block classification.
+// PUL-216.
+func (c Classifier) hydratePRTitle(ctx context.Context, repo string, number int) string {
+	if c.Resolver == nil {
+		return ""
 	}
-	switch p.Action {
-	case "merged":
-		// REST /events synthesizes a "merged" action for completed
-		// PR merges (the webhook channel emits action="closed" with
-		// pull_request.merged=true). PUL-185.
-		common.EventType = webhooks.EventTypePRMerged
-		return &common, nil
-	default:
-		// Includes "opened", "closed" (unmerged), "reopened",
-		// "labeled", "edited", etc. The "edited" arm was previously
-		// wired to EventTypePRTitleEdit via changes.title.from, but
-		// REST /events strips the `changes` field, so that branch was
-		// poll-blind by construction. Webhook channel was the
-		// canonical source for pr_title_edit but the inbound adapter
-		// was removed in PUL-166 PR5, so EventTypePRTitleEdit has no
-		// live source and is marked Deprecated in webhooks/event.go.
-		// PUL-185 + PUL-212.
-		return nil, ErrSkip
+	title, err := c.Resolver.LookupPRTitle(ctx, repo, number)
+	if err != nil {
+		c.logger().Warn("githubpoll.classify.title_lookup_failed",
+			"repo", repo, "pr", number, "error", err)
+		return ""
 	}
+	return title
 }
 
 // htmlURLForPR builds the public PR URL from "owner/name" and the

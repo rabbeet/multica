@@ -149,3 +149,137 @@ func TestHTTPResolver_RejectsInjectableInputs(t *testing.T) {
 		}
 	}
 }
+
+// PUL-216 — LookupPRTitle test coverage. Mirrors the
+// LookupPRsByCommit suite shape: happy path asserts headers + path,
+// then 404/403 soft-empty, 5xx error, blank/injectable inputs, and
+// the no-token path.
+
+func TestHTTPResolver_LookupPRTitle_HappyPath(t *testing.T) {
+	var gotAuth, gotAccept, gotAPIVersion, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAccept = r.Header.Get("Accept")
+		gotAPIVersion = r.Header.Get("X-GitHub-Api-Version")
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+            "number": 574,
+            "title": "[PUL-196] feat(refresh): dispatch",
+            "state": "closed"
+        }`))
+	}))
+	defer srv.Close()
+
+	r := NewHTTPResolver("ghp_test").WithBaseURL(srv.URL)
+	title, err := r.LookupPRTitle(context.Background(), "rabbeet/multica", 574)
+	if err != nil {
+		t.Fatalf("LookupPRTitle: %v", err)
+	}
+	if title != "[PUL-196] feat(refresh): dispatch" {
+		t.Errorf("title = %q", title)
+	}
+	if gotPath != "/repos/rabbeet/multica/pulls/574" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotAuth != "Bearer ghp_test" {
+		t.Errorf("auth = %q", gotAuth)
+	}
+	if gotAccept != "application/vnd.github+json" {
+		t.Errorf("accept = %q", gotAccept)
+	}
+	if gotAPIVersion != "2022-11-28" {
+		t.Errorf("api version = %q", gotAPIVersion)
+	}
+}
+
+func TestHTTPResolver_LookupPRTitle_404IsSoftEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.NotFound(w, nil)
+	}))
+	defer srv.Close()
+
+	r := NewHTTPResolver("t").WithBaseURL(srv.URL)
+	title, err := r.LookupPRTitle(context.Background(), "o/r", 1)
+	if err != nil {
+		t.Fatalf("404 should be a soft empty, got err %v", err)
+	}
+	if title != "" {
+		t.Errorf("expected empty title, got %q", title)
+	}
+}
+
+func TestHTTPResolver_LookupPRTitle_403IsSoftEmpty(t *testing.T) {
+	// Token without pull_request:read scope returns 403, not 404.
+	// Caller treats both as "no title hint" so the cascade falls
+	// through to the branch regex without spamming the warn-log on
+	// every PR event.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"forbidden"}`, http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	r := NewHTTPResolver("t").WithBaseURL(srv.URL)
+	title, err := r.LookupPRTitle(context.Background(), "o/r", 1)
+	if err != nil {
+		t.Fatalf("403 should be a soft empty, got err %v", err)
+	}
+	if title != "" {
+		t.Errorf("expected empty title, got %q", title)
+	}
+}
+
+func TestHTTPResolver_LookupPRTitle_5xxReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	r := NewHTTPResolver("t").WithBaseURL(srv.URL)
+	_, err := r.LookupPRTitle(context.Background(), "o/r", 1)
+	if err == nil {
+		t.Fatal("expected error on 500, got nil")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("err should mention status code: %v", err)
+	}
+}
+
+func TestHTTPResolver_LookupPRTitle_NoTokenSkipsAuthHeader(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"title":"x"}`))
+	}))
+	defer srv.Close()
+
+	r := NewHTTPResolver("").WithBaseURL(srv.URL)
+	if _, err := r.LookupPRTitle(context.Background(), "o/r", 1); err != nil {
+		t.Fatalf("LookupPRTitle: %v", err)
+	}
+	if gotAuth != "" {
+		t.Errorf("Authorization should be absent for unauth call, got %q", gotAuth)
+	}
+}
+
+func TestHTTPResolver_LookupPRTitle_RejectsBlankInputs(t *testing.T) {
+	r := NewHTTPResolver("t")
+	if _, err := r.LookupPRTitle(context.Background(), "", 1); err == nil {
+		t.Error("expected error on empty repo")
+	}
+	if _, err := r.LookupPRTitle(context.Background(), "o/r", 0); err == nil {
+		t.Error("expected error on zero pr number")
+	}
+	if _, err := r.LookupPRTitle(context.Background(), "o/r", -5); err == nil {
+		t.Error("expected error on negative pr number")
+	}
+}
+
+func TestHTTPResolver_LookupPRTitle_RejectsInjectableRepo(t *testing.T) {
+	r := NewHTTPResolver("t")
+	for _, bad := range []string{"o/r?x=1", "o/r#frag"} {
+		if _, err := r.LookupPRTitle(context.Background(), bad, 1); err == nil {
+			t.Errorf("repo %q should be rejected", bad)
+		}
+	}
+}
