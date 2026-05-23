@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -201,6 +201,28 @@ describe("AgentQuestionChips", () => {
     });
     const btn = getByLabelText("Select rbtd_bg") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
+  });
+
+  it("disables ALL chips while a mutation is in flight (double-tap guard)", async () => {
+    // Hold the mutation open with an unresolved promise so we can inspect
+    // the row mid-flight; otherwise the success state would fire instantly
+    // and the badge would replace the chip row.
+    const pending = new Promise<{ id: string; parent_id: string }>(() => {
+      // Never resolves within the assertion window — we just need the
+      // chip's `pending` state to stick long enough to inspect siblings.
+    });
+    createCommentMock.mockImplementationOnce(() => pending);
+    const { getByLabelText } = renderWithProviders(
+      <AgentQuestionChips {...baseProps} />,
+    );
+    fireEvent.click(getByLabelText("Select rbtd_bg_sym"));
+    await waitFor(() => {
+      // Every chip in the row must be disabled while one is pending —
+      // otherwise the user can rapid-tap a sibling chip during the morph
+      // window and create a duplicate reply.
+      const otherChip = getByLabelText("Select rbtd_anchor") as HTMLButtonElement;
+      expect(otherChip.disabled).toBe(true);
+    });
   });
 });
 

@@ -33,9 +33,32 @@ import { toast } from "sonner";
 import { Button } from "@multica/ui/components/ui/button";
 import { cn } from "@multica/ui/lib/utils";
 import { useCreateComment } from "@multica/core/issues/mutations";
-import { useOfflineCommentQueue } from "@multica/core/issues/stores";
+import {
+  useOfflineCommentQueue,
+  installOfflineCommentDrain,
+  type QueuedComment,
+} from "@multica/core/issues/stores";
+import { api } from "@multica/core/api";
 import { useAuthorContext } from "../../editor/context/author-context";
 import { useT } from "../../i18n";
+
+/**
+ * One-shot install of the offline-queue drainer. The first chip that
+ * mounts on the page calls this and the listener stays attached for the
+ * tab's lifetime; subsequent calls are no-ops thanks to the module-level
+ * guard in `installOfflineCommentDrain`.
+ *
+ * Lives here in PR1 because chips are the only producers of queued
+ * comments. PR2's Mission Control will host an explicit app-level
+ * provider and this hook can be removed in favour of that mount.
+ */
+function useOfflineDrainOnce(): void {
+  useEffect(() => {
+    installOfflineCommentDrain(async (item: QueuedComment) => {
+      await api.createComment(item.issueId, item.content, "comment", item.parentId);
+    });
+  }, []);
+}
 
 // ---------------------------------------------------------------------------
 // State machine
@@ -165,10 +188,18 @@ export function AgentQuestionChips({
 
   const createComment = useCreateComment(issueId ?? "");
   const enqueueOffline = useOfflineCommentQueue((s) => s.enqueue);
+  useOfflineDrainOnce();
+
+  // Double-tap guard: while any chip is pending, all chips in this
+  // group should reject taps. Otherwise the user can rapid-tap chip A
+  // then chip B in the morph window and end up with two threaded
+  // replies — the agent would then have to decide which one to take.
+  const isAnyPending = state.kind === "pending";
 
   const submit = useCallback(
     (variant: string) => {
       if (!canMutate || !commentId || !issueId) return;
+      if (state.kind === "pending") return; // belt-and-braces against rapid taps
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         enqueueOffline({ issueId, content: variant, parentId: commentId });
         setState({ kind: "offline", variant });
@@ -186,7 +217,7 @@ export function AgentQuestionChips({
         },
       );
     },
-    [canMutate, commentId, issueId, createComment, enqueueOffline, t],
+    [canMutate, commentId, issueId, createComment, enqueueOffline, t, state.kind],
   );
 
   // Success state: collapsed to a single inline badge.
@@ -229,6 +260,9 @@ export function AgentQuestionChips({
 
       {variants.map((variant) => {
         const isDefault = variant === defaultVariant;
+        // Each chip projects its own slice of the row-level state — only
+        // the variant the user actually tapped renders the loading / error
+        // affordance, even though the disabled state covers all chips.
         const isPending = state.kind === "pending" && state.variant === variant;
         const isError = state.kind === "error" && state.variant === variant;
         const isOffline = state.kind === "offline" && state.variant === variant;
@@ -241,7 +275,7 @@ export function AgentQuestionChips({
             }
             variant={isDefault ? "default" : "outline"}
             size="sm"
-            disabled={!canMutate || isPending}
+            disabled={!canMutate || isAnyPending}
             onClick={() => submit(variant)}
             onKeyDown={(e) => handleChipKeyDown(e, containerRef)}
             aria-label={t(($) => $.agent_action.aria_select_variant, { variant })}
@@ -274,7 +308,7 @@ export function AgentQuestionChips({
           data-chip-focusable="true"
           variant="ghost"
           size="sm"
-          disabled={!canMutate}
+          disabled={!canMutate || isAnyPending}
           onClick={() => setCustomMode(true)}
           onKeyDown={(e) => handleChipKeyDown(e, containerRef)}
           aria-label={t(($) => $.agent_action.aria_custom_answer)}
@@ -331,9 +365,11 @@ export function AgentCommandButton({
   const canMutate = !!issueId && !!commentId;
   const createComment = useCreateComment(issueId ?? "");
   const enqueueOffline = useOfflineCommentQueue((s) => s.enqueue);
+  useOfflineDrainOnce();
 
   const submit = useCallback(() => {
     if (!canMutate || !commentId || !issueId) return;
+    if (state.kind === "pending") return;
     const content = COMMAND_ACK_TOKEN;
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       enqueueOffline({ issueId, content, parentId: commentId });
@@ -351,7 +387,7 @@ export function AgentCommandButton({
         },
       },
     );
-  }, [canMutate, commentId, issueId, createComment, enqueueOffline, t]);
+  }, [canMutate, commentId, issueId, createComment, enqueueOffline, t, state.kind]);
 
   if (state.kind === "success") {
     return (
