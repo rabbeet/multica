@@ -816,6 +816,23 @@ export class ApiClient {
     return this.fetch(`/api/action-inbox?${search.toString()}`);
   }
 
+  // PUL-239 cross-device last-visit map. listLastVisits hydrates the
+  // local useLastVisitStore on Mission Control mount; markIssueVisited
+  // is the per-visit POST fired from useLastVisitStore.mark().
+  async listLastVisits(
+    workspaceId: string,
+  ): Promise<import("@multica/core/types").ListLastVisitsResponse> {
+    const search = new URLSearchParams({ workspace_id: workspaceId });
+    return this.fetch(`/api/last-visits?${search.toString()}`);
+  }
+
+  async markIssueVisited(workspaceId: string, issueId: string): Promise<void> {
+    const search = new URLSearchParams({ workspace_id: workspaceId });
+    await this.fetch(`/api/issues/${issueId}/last-visit?${search.toString()}`, {
+      method: "POST",
+    });
+  }
+
   async listTaskMessages(taskId: string): Promise<TaskMessagePayload[]> {
     return this.fetch(`/api/tasks/${taskId}/messages`);
   }

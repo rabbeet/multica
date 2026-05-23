@@ -535,6 +535,14 @@ type User struct {
 	Language                pgtype.Text        `json:"language"`
 }
 
+type UserIssueLastVisit struct {
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	UserID        pgtype.UUID        `json:"user_id"`
+	UserType      string             `json:"user_type"`
+	IssueID       pgtype.UUID        `json:"issue_id"`
+	LastVisitedAt pgtype.Timestamptz `json:"last_visited_at"`
+}
+
 type VerificationCode struct {
 	ID        pgtype.UUID        `json:"id"`
 	Email     string             `json:"email"`

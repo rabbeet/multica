@@ -5,13 +5,14 @@ import { AppLink } from "../../navigation";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useTimeAgo } from "../../common/hooks/use-time-ago";
 import { useT } from "../../i18n";
-import { useLastVisitStore } from "@multica/core/issues/stores";
+import { useWorkspaceId } from "@multica/core/hooks";
 import { StatusIcon, PriorityIcon } from "../../issues/components";
 import {
   AgentQuestionChips,
   AgentCommandButton,
 } from "../../issues/components/agent-action-chips";
 import { AuthorContextProvider } from "../../editor/context/author-context";
+import { useLastVisitSync } from "../hooks/use-last-visit-sync";
 import type { ActionInboxRow as ActionInboxRowData } from "../hooks/use-action-inbox";
 import type { InboxDensity } from "@multica/core/issues/stores";
 import { cn } from "@multica/ui/lib/utils";
@@ -42,7 +43,8 @@ export function ActionInboxRow({
   const { t } = useT("inbox");
   const timeAgo = useTimeAgo();
   const paths = useWorkspacePaths();
-  const markVisited = useLastVisitStore((s) => s.mark);
+  const wsId = useWorkspaceId();
+  const { markVisited } = useLastVisitSync(wsId);
 
   const { item, actions } = row;
   const commentId = item.latest_agent_comment?.id ?? null;

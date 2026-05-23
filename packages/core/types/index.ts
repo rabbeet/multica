@@ -91,6 +91,7 @@ export type {
   LatestAgentComment,
   LatestSkill,
 } from "./action-inbox";
+export type { LastVisitItem, ListLastVisitsResponse } from "./last-visit";
 export type {
   Autopilot,
   AutopilotStatus,

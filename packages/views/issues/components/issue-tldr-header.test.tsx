@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -11,6 +11,16 @@ import {
 } from "@multica/core/issues/stores";
 import { RESOURCES } from "../../locales";
 import type { SkillState, TimelineEntry } from "@multica/core/types";
+
+// PUL-239 — the TL;DR header now uses useLastVisitSync (which calls
+// /api/last-visits + /api/issues/:id/last-visit) instead of the raw
+// store mark. Stub api so the tests focus on the header layout.
+vi.mock("@multica/core/api", () => ({
+  api: {
+    listLastVisits: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    markIssueVisited: vi.fn().mockResolvedValue(undefined),
+  },
+}));
 
 function makeTimelinePage(entries: TimelineEntry[]) {
   return { entries, next_cursor: null, prev_cursor: null };

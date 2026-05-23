@@ -208,6 +208,9 @@ const mockApiObj = vi.hoisted(() => ({
   listTaskMessages: vi.fn().mockResolvedValue([]),
   listChildIssues: vi.fn().mockResolvedValue({ issues: [] }),
   listIssues: vi.fn().mockResolvedValue({ issues: [], total: 0 }),
+  // PUL-239 — TldrHeader's last-visit sync hook reads/writes via api.
+  listLastVisits: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  markIssueVisited: vi.fn().mockResolvedValue(undefined),
   uploadFile: vi.fn(),
   listIssueReactions: vi.fn().mockResolvedValue([]),
   addIssueReaction: vi.fn(),

@@ -11,6 +11,7 @@ import {
   useLastVisitStore,
   useTldrCollapseStore,
 } from "@multica/core/issues/stores";
+import { useLastVisitSync } from "../../inbox/hooks/use-last-visit-sync";
 import { Button } from "@multica/ui/components/ui/button";
 import { extractAgentActions } from "../../editor/utils/preprocess-agent-actions";
 import { useT } from "../../i18n";
@@ -41,17 +42,16 @@ import { cn } from "@multica/ui/lib/utils";
  * no open actions) — the page stays uncluttered for fresh issues.
  */
 export function IssueTldrHeader({
-  workspaceId: _workspaceId,
+  workspaceId,
   issueId,
 }: {
-  /** Reserved for the Phase 2 server-side last-visit sync (see
-   *  eng-review S2) — kept on the API so callers don't break later. */
+  /** PUL-239 — wires server-side last-visit sync. */
   workspaceId: string;
   issueId: string;
 }) {
   const { t } = useT("issues");
   const timeAgo = useTimeAgo();
-  const markVisited = useLastVisitStore((s) => s.mark);
+  const { markVisited } = useLastVisitSync(workspaceId);
   const lastVisitMs = useLastVisitStore((s) => s.visits[issueId] ?? null);
   const isCollapsed = useTldrCollapseStore((s) => s.isCollapsed(issueId));
   const toggleCollapse = useTldrCollapseStore((s) => s.toggle);
