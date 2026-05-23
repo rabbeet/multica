@@ -221,10 +221,10 @@ jobs:
       - name: Auto-merge PR (with status-rollup guard)
         if: success() && steps.guard.outputs.skip != 'true'
         env:
-          # AGENT_PULSE_PAT triggers downstream workflow_run on the resulting
+          # GH_AUTOFIX_TOKEN triggers downstream workflow_run on the resulting
           # main push (incl. release-watchdog M5). GITHUB_TOKEN merges silently
           # skip workflow_run as anti-recursion.
-          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+          GH_TOKEN: ${{ secrets.GH_AUTOFIX_TOKEN }}
         run: |
           set -uo pipefail
           PR_URL=$(gh pr list --repo "$GH_REPO" --json url,headRefName --jq '[.[] | select(.headRefName | startswith("ci-autofix"))][0].url // empty')

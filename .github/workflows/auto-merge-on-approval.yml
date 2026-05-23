@@ -152,19 +152,19 @@ jobs:
       - name: Diagnostic — secret length
         if: steps.gates.outputs.merge == 'true'
         env:
-          PAT: ${{ secrets.AGENT_PULSE_PAT }}
+          PAT: ${{ secrets.GH_AUTOFIX_TOKEN }}
         run: |
           # Print only length, not value — confirms whether the secret is
           # accessible to this workflow context (workflow_run vs pull_request).
           # Empty → secret missing or out-of-scope; non-zero → secret present.
-          echo "AGENT_PULSE_PAT length: ${#PAT}"
+          echo "GH_AUTOFIX_TOKEN length: ${#PAT}"
 
       - name: Merge with PAT
         if: steps.gates.outputs.merge == 'true'
         env:
-          # AGENT_PULSE_PAT triggers downstream workflows on the resulting
+          # GH_AUTOFIX_TOKEN triggers downstream workflows on the resulting
           # main push (GITHUB_TOKEN-authored pushes do not, per GitHub policy).
-          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+          GH_TOKEN: ${{ secrets.GH_AUTOFIX_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.pr_number }}
         run: |
