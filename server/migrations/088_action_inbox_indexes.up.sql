@@ -12,4 +12,4 @@
 -- predicate check at scan time).
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_comment_issue_agent_recent
   ON comment (issue_id, created_at DESC)
-  WHERE type = 'comment' AND actor_type = 'agent';
+  WHERE type = 'comment' AND author_type = 'agent';
