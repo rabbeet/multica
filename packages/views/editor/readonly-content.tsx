@@ -42,6 +42,12 @@ import { ImageLightbox } from "./extensions/image-view";
 import { useLinkHover, LinkHoverCard } from "./link-hover-card";
 import { openLink, isMentionHref } from "./utils/link-handler";
 import { preprocessMarkdown } from "./utils/preprocess";
+import { useAuthorContext } from "./context/author-context";
+import {
+  AgentQuestionChips,
+  AgentCommandButton,
+} from "../issues/components/agent-action-chips";
+import { decodeStringArray } from "./utils/preprocess-agent-actions";
 import "katex/dist/katex.min.css";
 import "./content-editor.css";
 
@@ -202,6 +208,16 @@ const sanitizeSchema = {
       "dataType",
       "dataHref",
       "dataFilename",
+      // PUL-231 agent-action chip markers — see preprocess-agent-actions.ts.
+      // Without these here, rehype-sanitize silently drops the data-* attrs
+      // and the chip components fall back to rendering empty divs.
+      "dataQuestionOrdinal",
+      "dataQuestionTitle",
+      "dataDefault",
+      "dataVariants",
+      "dataCommandOrdinal",
+      "dataCommands",
+      "dataGroupLabel",
     ],
     code: [
       ...(defaultSchema.attributes?.code ?? []),
@@ -485,6 +501,8 @@ const components: Partial<Components> = {
   },
 
   // FileCard — intercept <div data-type="fileCard"> from preprocessMarkdown
+  // PUL-231 agentQuestion / agentCommandBlock — also intercepted here, from
+  // preprocess-agent-actions step injected after preprocessFileCards.
   div: ({ node, children, ...props }) => {
     const dataType = node?.properties?.dataType as string | undefined;
     if (dataType === "fileCard") {
@@ -508,6 +526,34 @@ const components: Partial<Components> = {
             </button>
           )}
         </div>
+      );
+    }
+    if (dataType === "agentQuestion") {
+      const ordinal = parseInt((node?.properties?.dataQuestionOrdinal as string) || "0", 10);
+      const title = (node?.properties?.dataQuestionTitle as string) || "";
+      const defaultVal = (node?.properties?.dataDefault as string) || "";
+      const variants = decodeStringArray((node?.properties?.dataVariants as string) || "");
+      if (variants.length < 2) return null;
+      return (
+        <AgentQuestionChips
+          ordinal={ordinal}
+          title={title}
+          defaultVariant={defaultVal || null}
+          variants={variants}
+        />
+      );
+    }
+    if (dataType === "agentCommandBlock") {
+      const ordinal = parseInt((node?.properties?.dataCommandOrdinal as string) || "0", 10);
+      const commands = decodeStringArray((node?.properties?.dataCommands as string) || "");
+      const groupLabel = (node?.properties?.dataGroupLabel as string) || "";
+      if (commands.length === 0) return null;
+      return (
+        <AgentCommandButton
+          ordinal={ordinal}
+          commands={commands}
+          groupLabel={groupLabel}
+        />
       );
     }
     return <div {...props}>{children}</div>;
@@ -584,7 +630,12 @@ export const ReadonlyContent = memo(function ReadonlyContent({
   content,
   className,
 }: ReadonlyContentProps) {
-  const processed = useMemo(() => preprocessMarkdown(content), [content]);
+  // PUL-231 — comment-card wraps each agent-authored readonly view in an
+  // AuthorContextProvider so the preprocessor can inject chip markers.
+  // Other surfaces (issue description, autopilot detail) leave the default
+  // {isAgent: false} value and the agent-action step is a no-op.
+  const { isAgent } = useAuthorContext();
+  const processed = useMemo(() => preprocessMarkdown(content, isAgent), [content, isAgent]);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const hover = useLinkHover(wrapperRef);
 

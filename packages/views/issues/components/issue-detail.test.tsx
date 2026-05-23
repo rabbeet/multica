@@ -113,6 +113,10 @@ vi.mock("../../navigation", () => ({
 vi.mock("../../editor", () => ({
   useFileDropZone: () => ({ isDragOver: false, dropZoneProps: {} }),
   FileDropOverlay: () => null,
+  // PUL-231 — comment-card wraps ReadonlyContent in AuthorContextProvider
+  // to drive the chip preprocessor. Tests don't exercise the chip path,
+  // so a pass-through Provider is enough to satisfy the import.
+  AuthorContextProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ReadonlyContent: ({ content }: { content: string }) => (
     <div data-testid="readonly-content">{content}</div>
   ),
