@@ -45,15 +45,23 @@ var devDescribeRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+-\d+-g[0-9a-fA-F]+`)
 // when parsable but below the minimum. The caller can check for these
 // sentinel errors with errors.Is to drive the response shape.
 //
-// Dev-built daemons (git-describe shape) always pass — the version string
-// itself is the shared signal, so the modal pre-check and this server gate
-// agree by construction without needing to compare separate env flags.
+// Dev-built daemons (git-describe shape, OR the bare `dev` default from
+// server/cmd/multica/main.go:14) always pass — the version string itself is
+// the shared signal, so the modal pre-check and this server gate agree by
+// construction without needing to compare separate env flags. Bare `dev`
+// covers `go build` / `go install` / `go run` — flows that skip Makefile
+// ldflags entirely. Released binaries cannot report `dev` (goreleaser and
+// Dockerfile both inject `-X main.version=…`), so the exemption does not
+// weaken the prod gate.
 func CheckMinCLIVersion(detected string) error {
 	d := strings.TrimSpace(detected)
 	if d == "" {
 		return ErrCLIVersionMissing
 	}
-	if devDescribeRe.MatchString(d) {
+	// Case-sensitive exact "dev": the literal default in cmd/multica/main.go
+	// is lowercase, and no other source path emits it. A tripwire test in
+	// server/cmd/multica/main_test.go fails if the default ever drifts.
+	if d == "dev" || devDescribeRe.MatchString(d) {
 		return nil
 	}
 	parsed, err := parseSemver(d)
