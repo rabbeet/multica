@@ -58,5 +58,22 @@
     "archive_all_failed": "归档全部失败",
     "archive_all_read_failed": "归档已读失败",
     "archive_completed_failed": "归档已完成失败"
+  },
+  "mission_control": {
+    "title": "任务中心",
+    "nav_label": "任务中心",
+    "needs_action": "⚡ 等你处理 ({{count}})",
+    "in_progress_collapsed": "◯ 进行中 ({{count}} · 点击展开)",
+    "inbox_zero_headline": "🎉 收件箱已空。",
+    "inbox_zero_subtitle_with_active": "{{count}} 个进行中 issue，没有需要你立即处理的。",
+    "inbox_zero_subtitle_no_active": "没有进行中的 issue — 创建一个开始吧。",
+    "loading": "加载中…",
+    "error_title": "无法加载任务中心",
+    "error_retry": "重试",
+    "density_compact": "紧凑",
+    "density_expanded": "宽松",
+    "density_toggle_aria": "切换行密度",
+    "open_details_aria": "打开 issue {{identifier}} 详情",
+    "ago": "{{relative}}"
   }
 }

@@ -31,6 +31,7 @@ import {
   FolderKanban,
   X,
   Zap,
+  Compass,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -100,6 +101,7 @@ const EMPTY_INBOX: Awaited<ReturnType<typeof api.listInbox>> = [];
 // against the current workspace slug at render time (see AppSidebar body).
 // Only parameterless paths are valid nav destinations.
 type NavKey =
+  | "missionControl"
   | "inbox"
   | "myIssues"
   | "issues"
@@ -112,6 +114,7 @@ type NavKey =
 
 // Static schema (key + icon) — labels resolved at render via useT("layout").
 type NavLabelKey =
+  | "mission_control"
   | "inbox"
   | "my_issues"
   | "issues"
@@ -123,6 +126,10 @@ type NavLabelKey =
   | "settings";
 
 const personalNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
+  // PUL-231 Mission Control sits at the top — it's the surface the
+  // owner-mode user lands on when opening multica 50× / day. Inbox
+  // (notifications) lives below as a secondary affordance.
+  { key: "missionControl", labelKey: "mission_control", icon: Compass },
   { key: "inbox", labelKey: "inbox", icon: Inbox },
   { key: "myIssues", labelKey: "my_issues", icon: CircleUser },
 ];
