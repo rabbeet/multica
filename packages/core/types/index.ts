@@ -84,6 +84,7 @@ export type {
   ListProjectResourcesResponse,
 } from "./project";
 export type { PinnedItem, PinnedItemType, CreatePinRequest, ReorderPinsRequest } from "./pin";
+export type { AgentQuestion, AgentCommand, AgentActions } from "./agent-actions";
 export type {
   Autopilot,
   AutopilotStatus,

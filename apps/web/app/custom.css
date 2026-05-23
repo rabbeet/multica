@@ -44,3 +44,56 @@
     --scrollbar-thumb-hover: oklch(0 0 0 / 18%);
     --scrollbar-track: transparent;
 }
+
+/* =============================================================================
+ * PUL-231 — Inline agent-action chip motion
+ *
+ * Hot-path UI: every chip in agent comments runs through these animations
+ * on tap. Pure CSS keeps the bundle tiny (no framer-motion) and
+ * `@media (prefers-reduced-motion)` strips animation for users who opt out.
+ * Match the durations in the plan's Motion spec — keep them in sync if
+ * you tweak.
+ * ============================================================================= */
+
+@media (prefers-reduced-motion: no-preference) {
+    .agent-chip {
+        transition:
+            transform 80ms ease-out,
+            background-color 120ms ease-out,
+            box-shadow 120ms ease-out;
+    }
+    .agent-chip:active {
+        transform: scale(0.95);
+    }
+    .agent-chip[data-state="pending"] {
+        background-color: oklch(from var(--secondary) l c h / 60%);
+    }
+    .agent-chip[data-state="error"] {
+        animation: chip-error-flash 200ms ease-out;
+    }
+    [data-agent-action="answered"],
+    [data-agent-action="ack-sent"] {
+        animation: chip-success-glow 800ms ease-out;
+    }
+}
+
+@keyframes chip-error-flash {
+    0% {
+        background-color: oklch(from var(--destructive) l c h / 20%);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+@keyframes chip-success-glow {
+    0% {
+        background-color: oklch(from var(--brand) l c h / 20%);
+    }
+    20% {
+        background-color: oklch(from var(--brand) l c h / 20%);
+    }
+    100% {
+        background-color: oklch(from var(--brand) l c h / 10%);
+    }
+}

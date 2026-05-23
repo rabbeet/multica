@@ -324,5 +324,23 @@
     "empty": "No skills have been applied to this ticket yet.",
     "done_at": "done {{time}}",
     "in_progress_started": "in progress, started {{time}}"
+  },
+  "agent_action": {
+    "default_suffix": "default",
+    "custom_answer": "custom answer…",
+    "custom_answer_placeholder": "Type your answer…",
+    "answered": "answered: {{variant}}",
+    "send": "Send",
+    "cancel": "Cancel",
+    "run_all": "Run all {{count}}",
+    "run_single": "Run: {{command}}",
+    "running": "running…",
+    "send_failed": "Couldn't send — tap to retry",
+    "offline_queued": "queued (offline)",
+    "aria_question_group": "Answer to question {{ordinal}}: {{title}}",
+    "aria_select_variant": "Select {{variant}}",
+    "aria_custom_answer": "Write a custom answer",
+    "aria_run_commands": "Run the {{count}} commands above",
+    "aria_command_group": "Commands awaiting your approval"
   }
 }

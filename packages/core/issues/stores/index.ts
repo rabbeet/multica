@@ -10,6 +10,11 @@ export {
 export { useIssuesScopeStore, type IssuesScope } from "./issues-scope-store";
 export { useCommentCollapseStore } from "./comment-collapse-store";
 export {
+  useOfflineCommentQueue,
+  installOfflineCommentDrain,
+  type QueuedComment,
+} from "./offline-comment-queue";
+export {
   myIssuesViewStore,
   type MyIssuesViewState,
   type MyIssuesScope,

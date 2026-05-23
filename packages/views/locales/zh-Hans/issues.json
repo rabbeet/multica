@@ -317,5 +317,23 @@
     "empty": "尚未对该 issue 应用任何技能。",
     "done_at": "已完成 {{time}}",
     "in_progress_started": "进行中，开始于 {{time}}"
+  },
+  "agent_action": {
+    "default_suffix": "默认",
+    "custom_answer": "自定义回答…",
+    "custom_answer_placeholder": "输入你的回答…",
+    "answered": "已回答：{{variant}}",
+    "send": "发送",
+    "cancel": "取消",
+    "run_all": "运行全部 {{count}} 条",
+    "run_single": "运行：{{command}}",
+    "running": "运行中…",
+    "send_failed": "发送失败 — 点按重试",
+    "offline_queued": "已排队（离线）",
+    "aria_question_group": "问题 {{ordinal}} 的回答：{{title}}",
+    "aria_select_variant": "选择 {{variant}}",
+    "aria_custom_answer": "撰写自定义回答",
+    "aria_run_commands": "运行以上 {{count}} 条命令",
+    "aria_command_group": "等待你批准的命令"
   }
 }
