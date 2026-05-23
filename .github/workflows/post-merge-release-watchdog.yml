@@ -1,0 +1,122 @@
+name: Post-merge release watchdog
+
+# Ported from rabbeet/Pulse @ 74cf64d5 / post-merge-deploy-watchdog.yml
+# (PUL-235 M5, 2026-05-23) as part of the Approach C lift-and-shift.
+#
+# Multica reshape vs Pulse source:
+#   Pulse watches `deploy.yml` after every commit lands on main (Forge-based
+#   continuous deploy). Multica deploys via GoReleaser on tag push only
+#   (`release.yml` triggered by tags matching `v*.*.*`). So this watchdog
+#   doesn't loop over main commits — it loops over recently-pushed tags and
+#   checks whether the corresponding Release workflow run is healthy.
+#
+# Specific deltas:
+#   - Iteration scope: commits on main (last 25min) → tags matching `v*.*.*`
+#     (last 25min). Uses `/repos/.../tags` listing filtered by tag commit
+#     date.
+#   - Workflow to check: `deploy.yml` → `release.yml`.
+#   - Skip marker: `[skip deploy]|[skip ci]` in commit message → `[skip release]`
+#     in tag's annotated message (if any) OR `-dirty` in tag name (release.yml
+#     skips dirty tags by design — watchdog must mirror).
+#   - Telegram message wording: «deploy» → «release».
+#   - Telegram curl secret interpolation hardened via env: (same fix as M2/M4
+#     PR-title shell-injection — Pulse source interpolates `${{ secrets.X }}`
+#     directly into curl URL).
+#
+# Cron sweeps recently-pushed tags aged 20-25 min; if release.yml isn't
+# success/in_progress/queued/pending — Telegram alert.
+# Each tag enters the 5-min alert window once → one tag = at most one alert.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Check for un-released tags pushed in last 25 min
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # List recent tags (up to 100), pick those matching v*.*.* and pushed
+          # in last 30 min by their pointed-to commit date.
+          NOW=$(date -u +%s)
+          CUTOFF=$(( NOW - 30 * 60 ))
+
+          # Fetch tag refs + the commit each points to.
+          TAGS_JSON=$(gh api "/repos/$GH_REPO/git/matching-refs/tags/v" --paginate \
+            --jq '.[] | {ref: .ref, sha: .object.sha, type: .object.type}')
+
+          # Iterate, filter by recency.
+          echo "$TAGS_JSON" | jq -c '.' | while read -r TAG_JSON; do
+            TAG_NAME=$(echo "$TAG_JSON" | jq -r '.ref' | sed 's|^refs/tags/||')
+            OBJECT_SHA=$(echo "$TAG_JSON" | jq -r '.sha')
+            OBJECT_TYPE=$(echo "$TAG_JSON" | jq -r '.type')
+
+            # Strict semver match (matches release.yml's own gate).
+            if ! echo "$TAG_NAME" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              continue
+            fi
+
+            # Mirror release.yml's `-dirty` skip — these tags never produce a
+            # Release run by design, so alerting on them is noise.
+            if echo "$TAG_NAME" | grep -q -- '-dirty'; then
+              continue
+            fi
+
+            # Resolve tag → commit. Annotated tags: object.type=tag; we need
+            # the inner commit SHA. Lightweight tags: object.type=commit; sha
+            # is already the commit.
+            if [ "$OBJECT_TYPE" = "tag" ]; then
+              # Annotated — resolve via /git/tags/<sha> to get the commit + message.
+              TAG_API=$(gh api "/repos/$GH_REPO/git/tags/$OBJECT_SHA")
+              COMMIT_SHA=$(echo "$TAG_API" | jq -r '.object.sha')
+              TAG_MSG=$(echo "$TAG_API" | jq -r '.message')
+              # `[skip release]` in annotated tag message → silent skip.
+              if echo "$TAG_MSG" | grep -q '\[skip release\]'; then
+                continue
+              fi
+            else
+              COMMIT_SHA="$OBJECT_SHA"
+            fi
+
+            # Commit timestamp — older tags aren't candidates.
+            COMMITTED=$(gh api "/repos/$GH_REPO/commits/$COMMIT_SHA" --jq '.commit.committer.date')
+            COMMITTED_TS=$(date -u -d "$COMMITTED" +%s)
+            if [ "$COMMITTED_TS" -lt "$CUTOFF" ]; then
+              continue
+            fi
+            AGE_MIN=$(( (NOW - COMMITTED_TS) / 60 ))
+
+            # Look up Release run for this tag's commit.
+            RELEASE=$(gh api "/repos/$GH_REPO/actions/workflows/release.yml/runs?head_sha=$COMMIT_SHA&per_page=1" \
+              --jq '.workflow_runs[0] // {} | (.conclusion // .status // "missing")')
+
+            # Skip healthy states.
+            case "$RELEASE" in
+              success|in_progress|queued|pending|waiting) continue ;;
+            esac
+
+            # Alert window: tag commit aged 20-25 min. Single cron tick per tag.
+            if [ "$AGE_MIN" -ge 20 ] && [ "$AGE_MIN" -lt 26 ]; then
+              MSG="⚠️ <b>Post-merge release watchdog</b>
+          Tag <code>${TAG_NAME}</code> → commit <code>${COMMIT_SHA:0:8}</code>, pushed ${AGE_MIN} min назад, release = <code>${RELEASE}</code>.
+          <a href=\"https://github.com/${GH_REPO}/releases/tag/${TAG_NAME}\">Tag</a> | <a href=\"https://github.com/${GH_REPO}/actions/workflows/release.yml\">Release runs</a>"
+              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d chat_id="${TELEGRAM_CHAT_ID}" \
+                -d parse_mode=HTML \
+                --data-urlencode "text=${MSG}"
+            fi
+          done
