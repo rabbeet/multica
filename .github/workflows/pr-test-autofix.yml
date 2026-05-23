@@ -1,0 +1,637 @@
+name: PR Test Autofix
+
+# Ported from rabbeet/Pulse @ 74cf64d5 (PUL-235 M4, 2026-05-23) as part of
+# the Approach C lift-and-shift. Triggered by CI completing with
+# conclusion=failure on a PR branch. Tries to fix failing tests via Claude,
+# commits + pushes [auto-test-fix] back to the PR branch, lets CI + review
+# pipelines re-trigger naturally.
+#
+# Pulse plan: rabbeet/plans @ Pulse/2026-05-19-pul-209-pr-test-autofix-workflow.md
+# Pulse issue: PUL-209
+#
+# Multica deltas vs Pulse source:
+#   - Setup: shivammathur/setup-php@v2 + composer + npm → actions/setup-go@v5
+#     (go-version-file: server/go.mod) + pnpm/action-setup@v4 +
+#     actions/setup-node@v6 (cache: pnpm).
+#   - Install: `composer install + npm ci + cp .env.example .env +
+#     php artisan key:generate + npm run build` → `pnpm install --frozen-lockfile
+#     + cd server && go mod download`. No .env required (Go server reads env
+#     directly); no key:generate (no Laravel).
+#   - HUSKY env removed (no husky in multica).
+#   - Test cmd in prompt: `vendor/bin/pest --filter '<TestName>' --no-coverage`
+#     → `cd server && go test -run '<TestName>' ./...`.
+#   - Lint cmd in prompt: `vendor/bin/pint --dirty --format agent` →
+#     `gofmt -w server/`. NO prettier (verified PUL-235 M2: multica has no
+#     prettier dependency).
+#   - claude_args allowedTools: `Bash(php:*),Bash(vendor/bin/pest:*),
+#     Bash(vendor/bin/pint:*),Bash(npx:*),Bash(npm run:*)` →
+#     `Bash(go:*),Bash(gofmt:*),Bash(pnpm:*),Bash(echo:*),Bash(cat:*),
+#     Bash(head:*),Bash(tail:*)`.
+#   - Forbidden-pattern grep adapted for Go:
+#     - FORBIDDEN_REGEX: `markTestSkipped|markTestIncomplete|...|->skip\(|
+#       ->todo\(` → `t\.Skip\(|t\.SkipNow\(|t\.Skipf\(|//.*nolint:.*test`
+#     - REMOVED_ASSERTS (PHP/JS pattern) → Go asserts: `assert\.|require\.|
+#       t\.Fatal|t\.Error|if .* != .* \{ t\.Error`
+#     - TEST_DIFF path filter: `tests/|spec/|__tests__/|.test.|.spec.|
+#       .svelte.spec.` → `_test\.go$|\.test\.tsx?$|\.spec\.tsx?$|tests/|
+#       __tests__/`
+#     - Empty-catch: `catch\s*\([^)]+\)\s*\{\s*\}` (PHP/JS) → also catches
+#       `defer func\(\) \{ _ = recover\(\) \}\(\)` (Go empty defer-recover)
+#   - "test-job-failed" check uses `startswith("test")` to match Pulse's
+#     PHP-matrix-name convention. Multica's CI job names are `frontend` and
+#     `backend` — adjusted to match either of those starting with the test phase.
+#   - PR-event field interpolation hardened via env: per the M2 process
+#     learning (Pulse source interpolates raw `${{ github.event.X }}` into
+#     shell strings; the Pulse-source habit is the same shell-injection risk
+#     caught in M2 — same back-port debt as code-review-fix.yml).
+#   - sentry-autofix blocker label dropped from the blockers list (Q2 drop:
+#     no sentry-autofix workflow in multica).
+#
+# Rev 4 (Pulse, post-incident 2026-05-20) — STRUCTURAL refactor:
+#   - A2: split into `preflight` (fast guards, ~30s) + `autofix` (heavy
+#     install + Claude, ~10-15min). 80% of skip cases now cost 30s.
+#   - A1: self-throttle if 5+ own failures in last 30 min (circuit breaker).
+#   - A3: Claude commit-only, workflow pushes after grep_check passes.
+#   - A4: round label moved AFTER grep_check passed=true.
+#   - A5: timeout-minutes: 15 on Claude step.
+#   - C1: single should_proceed output replaces brittle skip-chain.
+#   - C3: Telegram via composite action.
+#   - P2: post-run timing artifact.
+#   - P3: cancel-in-progress: TRUE.
+#
+# Sibling workflows in multica:
+#   - code-review.yml          reviews diff on PR open/synchronize (M2)
+#   - code-review-fix.yml      fixes review comments (label-triggered) (M2)
+#   - ci-autofix.yml           fixes main branch failures (post-merge only) (M4)
+#   - auto-gofmt.yml           Go auto-format on agent-* PRs (M3)
+#   - auto-merge-on-approval.yml (M3)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    if: |
+      vars.ENABLE_PR_TEST_AUTOFIX != 'false' &&
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_branch != 'main' &&
+      github.event.workflow_run.head_branch != 'develop' &&
+      github.event.workflow_run.head_branch != 'master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: read
+    outputs:
+      should_proceed: ${{ steps.gate.outputs.should_proceed }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      head_branch: ${{ steps.resolve.outputs.head_branch }}
+      run_url: ${{ steps.resolve.outputs.run_url }}
+      round_now: ${{ steps.round.outputs.round_now }}
+      round_done: ${{ steps.round.outputs.round_done }}
+      skip_reason: ${{ steps.gate.outputs.skip_reason }}
+    env:
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Self-throttle — check own failure rate
+        id: throttle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SINCE=$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+          RECENT_FAILURES=$(gh run list \
+            --repo "$GH_REPO" \
+            --workflow pr-test-autofix.yml \
+            --status failure \
+            --created ">${SINCE}" \
+            --json conclusion --jq 'length')
+          echo "recent_failures=$RECENT_FAILURES" >> "$GITHUB_OUTPUT"
+          if [ "$RECENT_FAILURES" -ge 5 ]; then
+            echo "throttled=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Self-throttling: $RECENT_FAILURES failures in last 30min."
+          else
+            echo "throttled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify Telegram — self-throttled
+        if: steps.throttle.outputs.throttled == 'true'
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            ⚠️ <b>PR Test Autofix self-throttled</b>
+
+            ${{ steps.throttle.outputs.recent_failures }} failures in last 30 min. Workflow disabled until investigated.
+
+            Run: https://github.com/${{ github.repository }}/actions/workflows/pr-test-autofix.yml
+
+            To re-enable: investigate root cause, then disable+re-enable via <code>gh variable set ENABLE_PR_TEST_AUTOFIX --body true</code>.
+
+      - name: Resolve PR number
+        id: resolve
+        if: steps.throttle.outputs.throttled != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          PR_JSON: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+        run: |
+          set -euo pipefail
+          PR=$(echo "$PR_JSON" | jq -r '.[0].number // empty')
+          if [ -z "$PR" ]; then
+            PR=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
+                  --jq '[.[] | select(.state == "open")][0].number // empty')
+          fi
+          if [ -z "$PR" ]; then
+            echo "::warning::Cannot resolve PR for head $HEAD_SHA."
+          fi
+          {
+            echo "pr_number=$PR"
+            echo "head_sha=$HEAD_SHA"
+            echo "head_branch=$HEAD_BRANCH"
+            echo "run_url=https://github.com/$GH_REPO/actions/runs/$RUN_ID"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Determine round (count of test-fix-round-N labels)
+        id: round
+        if: steps.throttle.outputs.throttled != 'true' && steps.resolve.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.resolve.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          ROUND_DONE=$(gh pr view "$PR" --repo "$GH_REPO" --json labels \
+            --jq '[.labels[].name | select(startswith("test-fix-round-"))] | length')
+          ROUND_NOW=$((ROUND_DONE + 1))
+          echo "round_done=$ROUND_DONE" >> "$GITHUB_OUTPUT"
+          echo "round_now=$ROUND_NOW" >> "$GITHUB_OUTPUT"
+
+      - name: Guard — round cap / draft / blocking labels / marker / test-job-failed
+        id: guard
+        if: steps.throttle.outputs.throttled != 'true' && steps.resolve.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.resolve.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          ROUND_DONE: ${{ steps.round.outputs.round_done }}
+        run: |
+          set -euo pipefail
+          if [ "$ROUND_DONE" -ge 3 ]; then
+            echo "skip=cap" >> "$GITHUB_OUTPUT"
+            gh pr edit "$PR" --repo "$GH_REPO" --add-label needs-human-review || true
+            exit 0
+          fi
+          META=$(gh pr view "$PR" --repo "$GH_REPO" --json isDraft,labels)
+          IS_DRAFT=$(echo "$META" | jq -r .isDraft)
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "skip=draft" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Multica blocker labels: dropped 'sentry-autofix' per PUL-235 Q2.
+          for blocker in needs-human-review claude-fix-needed ci-autofix needs-emergency-revert pr-test-autofix-disabled; do
+            HIT=$(echo "$META" | jq --arg n "$blocker" '[.labels[] | select(.name == $n)] | length')
+            if [ "$HIT" -gt 0 ]; then
+              echo "skip=blocking-label:$blocker" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          COMMIT_MSG=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA" --jq '.commit.message')
+          if echo "$COMMIT_MSG" | grep -q '\[auto-test-fix\]'; then
+            echo "skip=marker" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Multica's CI job names are 'frontend' and 'backend'. Multi-prefix
+          # accepted so future job naming (e.g. 'integration', 'e2e') works.
+          FAILED_TEST_JOBS=$(gh api "/repos/$GH_REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '[.jobs[] | select(.conclusion=="failure" and (.name | test("^(backend|frontend|integration|e2e|test)")))] | length')
+          if [ "$FAILED_TEST_JOBS" -eq 0 ]; then
+            echo "skip=no-test-failures" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=" >> "$GITHUB_OUTPUT"
+
+      - name: Extract failed test logs
+        id: logs
+        if: steps.guard.outputs.skip == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed 2>/dev/null \
+            | grep -E '(FAIL|FAILED|Error|✗|--- FAIL:|panic:|Tests:.*[1-9][0-9]* failed)' -A 10 \
+            | head -500 > /tmp/failed-tests.txt || true
+          if [ ! -s /tmp/failed-tests.txt ]; then
+            gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed 2>/dev/null \
+              | tail -200 > /tmp/failed-tests.txt || true
+          fi
+          if [ ! -s /tmp/failed-tests.txt ]; then
+            echo "skip=empty-logs" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=" >> "$GITHUB_OUTPUT"
+            echo "Captured $(wc -l < /tmp/failed-tests.txt) lines of failed-test context."
+          fi
+
+      - name: Upload failed-test logs (handoff to autofix job)
+        if: steps.guard.outputs.skip == '' && steps.logs.outputs.skip == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-tests-${{ github.run_id }}
+          path: /tmp/failed-tests.txt
+          retention-days: 1
+
+      - name: Aggregate should_proceed
+        id: gate
+        if: always() && steps.throttle.outputs.throttled != 'true'
+        env:
+          THROTTLED: ${{ steps.throttle.outputs.throttled }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          GUARD_SKIP: ${{ steps.guard.outputs.skip }}
+          LOGS_SKIP: ${{ steps.logs.outputs.skip }}
+        run: |
+          set -uo pipefail
+          if [ "$THROTTLED" = "true" ]; then
+            REASON="throttled"
+          elif [ -z "$PR_NUMBER" ]; then
+            REASON="no-pr"
+          elif [ -n "$GUARD_SKIP" ]; then
+            REASON="$GUARD_SKIP"
+          elif [ -n "$LOGS_SKIP" ]; then
+            REASON="$LOGS_SKIP"
+          else
+            REASON=""
+          fi
+          if [ -z "$REASON" ]; then
+            echo "should_proceed=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_proceed=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=$REASON" >> "$GITHUB_OUTPUT"
+            echo "Preflight gate: skip ($REASON)"
+          fi
+
+      - name: Notify Telegram — empty logs
+        if: steps.gate.outputs.skip_reason == 'empty-logs'
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            ⚠️ <b>PR Test Autofix</b> — не смог извлечь логи (timeout/cancelled CI?). Manual review.
+
+            PR: <a href="https://github.com/${{ github.repository }}/pull/${{ steps.resolve.outputs.pr_number }}">#${{ steps.resolve.outputs.pr_number }}</a>
+            Run: <a href="${{ steps.resolve.outputs.run_url }}">CI run</a>
+
+      - name: Notify Telegram — round cap
+        if: steps.gate.outputs.skip_reason == 'cap'
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            ⚠️ <b>PR Test Autofix</b> — 3 раунда исчерпаны
+
+            PR: <a href="https://github.com/${{ github.repository }}/pull/${{ steps.resolve.outputs.pr_number }}">#${{ steps.resolve.outputs.pr_number }}</a>
+
+            Нужен ручной разбор.
+
+  autofix:
+    needs: preflight
+    if: needs.preflight.outputs.should_proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: pr-test-autofix-${{ needs.preflight.outputs.pr_number }}
+      cancel-in-progress: true
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    env:
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ needs.preflight.outputs.pr_number }}
+      PR_URL: https://github.com/${{ github.repository }}/pull/${{ needs.preflight.outputs.pr_number }}
+      HEAD_SHA: ${{ needs.preflight.outputs.head_sha }}
+      BRANCH: ${{ needs.preflight.outputs.head_branch }}
+      RUN_URL: ${{ needs.preflight.outputs.run_url }}
+      ROUND_NOW: ${{ needs.preflight.outputs.round_now }}
+    steps:
+      - name: Notify Telegram — started
+        continue-on-error: true
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            🔧 <b>PR Test Autofix</b> взял PR в работу (round ${{ env.ROUND_NOW }}/3)
+
+            PR: <a href="${{ env.PR_URL }}">#${{ env.PR }}</a>
+
+      - name: Checkout PR branch (AGENT_PULSE_PAT for downstream-trigger pushes)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.head_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.AGENT_PULSE_PAT }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          cd server && go mod download
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Download failed-test logs (from preflight artifact)
+        uses: actions/download-artifact@v4
+        with:
+          name: failed-tests-${{ github.run_id }}
+          path: /tmp
+
+      - name: Capture base SHA (for forbidden-pattern diff range)
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude auto-fix
+        id: claude
+        timeout-minutes: 15
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: "github-actions,claude"
+          additional_permissions: |
+            actions: read
+          prompt: |
+            Ты чинишь упавшие тесты на PR #${{ env.PR }} в ${{ github.repository }}.
+            Это раунд ${{ env.ROUND_NOW }}/3.
+
+            ## Failed CI run
+
+            - Workflow: CI
+            - Run URL: ${{ env.RUN_URL }}
+            - Логи упавших тестов: `/tmp/failed-tests.txt` (focused grep на FAIL/Error/✗/--- FAIL/panic).
+
+            ## Шаги
+
+            1. Прочитай `CLAUDE.md` для project conventions.
+            2. Прочитай `/tmp/failed-tests.txt`. Идентифицируй каждый упавший тест: пакет, функция (`func TestX(t *testing.T)`), тип ошибки (assertion / panic / timeout / `t.Fatal`).
+            3. Для каждого упавшего теста:
+               a. Прочитай файл теста (`*_test.go` или `*.test.ts/tsx`) и production-код, который он тестит.
+               b. **Default: чини production-код.** Если тест валится, значит код не делает то, что тест ожидает. Тест — спецификация.
+               c. **Только если ассерт явно устарел** (snapshot, изменённая публичная сигнатура, новое поведение sprint, явно flaky race) — правь тест. Объясни в commit message почему.
+               d. **НИКОГДА** не используй: `t.Skip(...)`, `t.SkipNow()`, `t.Skipf(...)`, удаление assertions, `if false { t.Run(...) }`, пустой `defer func() { _ = recover() }()` чтобы поглотить panic, `// nolint:test*` для подавления, `t.SkipUnless` без чёткой причины. Это зелёнит CI без починки. **Post-step grep+revert поймает такие паттерны и откатит твой коммит** — лучше выйти с ошибкой (workflow поставит `needs-human-review`), чем сшоркатить.
+            4. Прогони локально ТОЛЬКО затронутые тесты (Go):
+               `cd server && go test -run '<TestName>' ./...`
+               Для TS/TSX тестов:
+               `pnpm turbo test --filter='<package>' -- --testNamePattern='<TestName>'`
+            5. **НЕ** прогоняй full `go test ./...` или `pnpm turbo test` — это сделает CI rerun автоматически после push'а.
+            6. Format dirty:
+               `gofmt -w server/`
+               (Не используй prettier — multica не имеет prettier dependency.)
+            7. **Commit ТОЛЬКО** (НЕ push — workflow push сам после safety check):
+               ```
+               git add -A
+               git commit -m "fix(tests): round ${{ env.ROUND_NOW }} — <symptom> [auto-test-fix]"
+               ```
+               Маркер `[auto-test-fix]` в commit message обязателен — анти-петля.
+               **НЕ выполняй `git push`** — это сделает workflow после grep-проверки.
+
+            ## Rules
+
+            - Чини ТОЛЬКО упавшие тесты + код, который они проверяют.
+            - НЕ рефакторь несвязанный код.
+            - НЕ добавляй фичи.
+            - НЕ меняй сигнатуры публичных API без явного маркера в тесте.
+            - НЕ редактируй sqlc-generated файлы (`server/internal/db/*.sql.go`) — правь underlying `.sql` или `sqlc.yaml`.
+            - Если несколько тестов валятся на одну корневую причину — один коммит на причину.
+            - Если корневая причина неясна — выходи. Лучше `needs-human-review`, чем неверный фикс.
+          claude_args: >-
+            --model claude-sonnet-4-6
+            --allowedTools
+            "Read,Glob,Grep,Edit,Write,
+            Bash(git add:*),Bash(git commit:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),
+            Bash(gh api:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),
+            Bash(go:*),Bash(gofmt:*),Bash(pnpm:*),Bash(echo:*),Bash(cat:*),Bash(head:*),Bash(tail:*)"
+
+      - name: Forbidden-pattern grep (mandatory)
+        id: grep_check
+        if: steps.claude.outcome == 'success'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          #!/usr/bin/env bash
+          set -uo pipefail
+
+          if [ "$(git rev-parse HEAD)" = "$BASE_SHA" ]; then
+            echo "No new commits since BASE_SHA — Claude exited without changes."
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "no_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DIFF=$(git diff "$BASE_SHA" HEAD)
+          # Multica test path filter: Go *_test.go suffix, TS/TSX .test/.spec
+          # files, or tests/__tests__/ directories.
+          TEST_DIFF=$(echo "$DIFF" | awk '
+            /^diff --git/ {
+              path=$0
+              in_test = (path ~ /(_test\.go$|\.test\.tsx?$|\.spec\.tsx?$|\/tests\/|\/__tests__\/)/)
+            }
+            in_test { print }
+          ')
+
+          # Go test-skip patterns + tsconfig-level nolint test suppressions.
+          FORBIDDEN_REGEX='t\.Skip\(|t\.SkipNow\(|t\.Skipf\(|//.*nolint:.*test|@?ts-ignore.*test|@?ts-expect-error.*test|describe\.skip\(|it\.skip\(|test\.skip\('
+          # Removed Go assertions OR removed TS expect/assertions.
+          REMOVED_ASSERTS=$(echo "$TEST_DIFF" | grep -E '^-\s*(assert\.|require\.|t\.Fatal|t\.Fatalf|t\.Error|t\.Errorf|if .* != .* \{ t\.Error|expect\(|->toBe|->toEqual|assertEquals)' || true)
+          PATTERN_HITS=$(echo "$TEST_DIFF" | grep '^+' | grep -E "$FORBIDDEN_REGEX" || true)
+          # Empty defer-recover (silent panic swallow) in Go, OR empty catch in TS.
+          EMPTY_PANIC_SWALLOW=$(echo "$TEST_DIFF" | grep -PzoE 'defer\s+func\s*\(\s*\)\s*\{\s*_\s*=\s*recover\(\s*\)\s*\}\(\s*\)' || true)
+          EMPTY_CATCH=$(echo "$TEST_DIFF" | grep -PzoE 'catch\s*\([^)]+\)\s*\{\s*\}' || true)
+
+          if [ -n "$PATTERN_HITS" ] || [ -n "$REMOVED_ASSERTS" ] || [ -n "$EMPTY_PANIC_SWALLOW" ] || [ -n "$EMPTY_CATCH" ]; then
+            echo "::error::Forbidden test-skip pattern detected. Local-only revert (nothing pushed to remote yet — A3 commit-only flow)."
+            if [ -n "$PATTERN_HITS" ]; then
+              echo "Pattern hits ($(echo "$PATTERN_HITS" | wc -l) lines, first 20):"
+              echo "$PATTERN_HITS" | head -20
+            fi
+            if [ -n "$REMOVED_ASSERTS" ]; then
+              echo "Removed assertions ($(echo "$REMOVED_ASSERTS" | wc -l) lines, first 20):"
+              echo "$REMOVED_ASSERTS" | head -20
+            fi
+            if [ -n "$EMPTY_PANIC_SWALLOW" ]; then
+              echo "Empty defer-recover panic-swallow matches: ${#EMPTY_PANIC_SWALLOW} bytes"
+            fi
+            if [ -n "$EMPTY_CATCH" ]; then
+              echo "Empty catch matches: ${#EMPTY_CATCH} bytes"
+            fi
+            git reset --hard "$BASE_SHA"
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "✓ No forbidden patterns in auto-fix diff. Safe to push."
+          echo "passed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push to PR branch
+        id: push
+        if: |
+          steps.claude.outcome == 'success' &&
+          steps.grep_check.outputs.passed == 'true' &&
+          steps.grep_check.outputs.no_changes != 'true'
+        run: |
+          set -euo pipefail
+          git push origin "$BRANCH"
+
+      - name: Add round label
+        if: success() && steps.push.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit "$PR" --repo "$GH_REPO" --add-label "test-fix-round-${ROUND_NOW}" || true
+
+      - name: Notify Telegram — reverted (bad pattern caught, label)
+        if: failure() && steps.grep_check.outputs.passed == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+        run: |
+          gh pr edit "$PR" --repo "$GH_REPO" --add-label needs-human-review || true
+
+      - name: Notify Telegram — reverted (bad pattern caught, alert)
+        if: failure() && steps.grep_check.outputs.passed == 'false'
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            ⚠️ <b>pr-test-autofix REVERTED</b> — Claude tried to skip tests. Local-only revert (nothing reached remote — A3 commit-only flow).
+
+            PR: <a href="${{ env.PR_URL }}">#${{ env.PR }}</a>
+
+      - name: Safety net — escalate if Claude/grep failed unexpectedly
+        if: |
+          !cancelled() &&
+          (steps.claude.outcome == 'cancelled' ||
+           steps.claude.outcome == 'failure' ||
+           (steps.claude.outcome == 'success' && steps.grep_check.outcome != 'success' && steps.grep_check.outputs.passed != 'false'))
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+        run: |
+          gh pr edit "$PR" --repo "$GH_REPO" --add-label needs-human-review || true
+
+      - name: Safety net — Telegram alert
+        if: |
+          !cancelled() &&
+          (steps.claude.outcome == 'cancelled' ||
+           steps.claude.outcome == 'failure' ||
+           (steps.claude.outcome == 'success' && steps.grep_check.outcome != 'success' && steps.grep_check.outputs.passed != 'false'))
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            ⚠️ <b>pr-test-autofix safety-net</b> — claude=${{ steps.claude.outcome }}, grep=${{ steps.grep_check.outcome }}. Manual review needed.
+
+            PR: <a href="${{ env.PR_URL }}">#${{ env.PR }}</a>
+
+      - name: Safety net — push failure (label)
+        if: failure() && steps.grep_check.outputs.passed == 'true' && steps.push.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+        run: |
+          gh pr edit "$PR" --repo "$GH_REPO" --add-label needs-human-review || true
+
+      - name: Safety net — push failure (Telegram)
+        if: failure() && steps.grep_check.outputs.passed == 'true' && steps.push.outcome == 'failure'
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            ⚠️ <b>pr-test-autofix push failed</b> — Claude commit OK, grep OK, but push origin failed (network/token/branch-protection?).
+
+            PR: <a href="${{ env.PR_URL }}">#${{ env.PR }}</a>
+            Run: <a href="${{ env.RUN_URL }}">CI run</a>
+
+      - name: Notify Telegram — pushed (success)
+        if: success() && steps.push.outcome == 'success'
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            ✅ <b>PR Test Autofix</b> запушил фиксы (round ${{ env.ROUND_NOW }}/3)
+
+            PR: <a href="${{ env.PR_URL }}">#${{ env.PR }}</a>
+
+            Ожидаем повторный CI rerun...
+
+      - name: Notify Telegram — Claude no-op (no changes)
+        if: success() && steps.grep_check.outputs.no_changes == 'true'
+        uses: ./.github/actions/telegram-notify
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            ℹ️ <b>PR Test Autofix</b> — Claude не нашёл что починить (no commits made). Возможно, тесты упали по непонятной причине.
+
+            PR: <a href="${{ env.PR_URL }}">#${{ env.PR }}</a>
+
+      - name: Capture cost telemetry
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID_SELF: ${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/cost
+          TIMING=$(gh api "/repos/$GH_REPO/actions/runs/$RUN_ID_SELF/timing" 2>/dev/null || echo '{}')
+          jq -n \
+            --arg run_id "$RUN_ID_SELF" \
+            --arg pr "$PR" \
+            --arg round "$ROUND_NOW" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg claude_outcome "${{ steps.claude.outcome }}" \
+            --arg grep_outcome "${{ steps.grep_check.outcome }}" \
+            --arg push_outcome "${{ steps.push.outcome }}" \
+            --argjson timing "$TIMING" \
+            '{run_id: $run_id, pr: ($pr | tonumber? // null), round: ($round | tonumber? // null), ts: $ts, claude_outcome: $claude_outcome, grep_outcome: $grep_outcome, push_outcome: $push_outcome, billable_ms: ($timing.billable.UBUNTU.total_ms // 0)}' \
+            > "/tmp/cost/run-${RUN_ID_SELF}.json"
+          cat "/tmp/cost/run-${RUN_ID_SELF}.json"
+
+      - name: Upload cost telemetry artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-test-autofix-cost-${{ github.run_id }}
+          path: /tmp/cost/
+          retention-days: 90

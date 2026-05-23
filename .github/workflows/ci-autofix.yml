@@ -1,0 +1,340 @@
+name: CI Autofix
+
+# Ported from rabbeet/Pulse @ 74cf64d5 (PUL-235 M4, 2026-05-23) as part of
+# the Approach C lift-and-shift. Runs after CI on main fails — Claude diagnoses
+# the failure, opens a `ci-autofix-<ts>` PR with the fix, auto-merges when CI
+# on the fix PR goes green (status-rollup-guarded).
+#
+# Multica deltas vs Pulse source:
+#   - workflow_run filter: `workflows: ["CI", "Build & Deploy"]` → `["CI"]`.
+#     multica deploys via GoReleaser on tag push only — no on-merge deploy
+#     workflow to watch. Failed releases are monitored by the release-watchdog
+#     (M5), not by this autofix.
+#   - Setup: setup-php + composer + npm → setup-go@v5 (server/go.mod) + pnpm +
+#     setup-node@v6.
+#   - Prompt rewrites: "Laravel 12 + Svelte 5 application" → "Go server (Chi
+#     router) + Next.js frontend monorepo". Common-failure list updated for
+#     Go panics / pnpm/turbo errors / Next.js build failures (was PHP
+#     class_exists, npm build, migrations).
+#   - Test cmd: `php artisan test --compact --filter="<test>"` →
+#     `cd server && go test -run '<TestName>' ./...`.
+#   - Lint cmd: `vendor/bin/pint --dirty --format agent` → `gofmt -w server/`.
+#     NO prettier (M2 finding).
+#   - Blacksmith probe (last step in Pulse) REMOVED — multica does not use
+#     Blacksmith runners; if/when it migrates, re-add via separate PR.
+#   - Telegram curl hardening: PR_URL / RUN_URL / ERROR_LINE / REPORT_* passed
+#     via env: instead of inline `${{ secrets.TELEGRAM_* }}` interpolation. The
+#     Pulse source interpolates secrets into shell strings (`curl
+#     "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/..."`)
+#     which is masked-in-logs but bad practice — back-port recommended same
+#     as the M2 shell-injection fix.
+#   - "Build & Deploy" cleanup-stale-branches step retained — branch names
+#     stay `ci-autofix-<timestamp>` so the cleanup logic ports 1:1.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_branch == 'main'
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: write
+
+    env:
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Extract failed run info
+        id: failed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          RUN_URL="https://github.com/$GH_REPO/actions/runs/$RUN_ID"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+
+          LOGS=$(gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed 2>&1 | tail -200)
+          echo "$LOGS" > /tmp/failed-logs.txt
+
+          # Go panics / pnpm errors / Next.js build errors all surface as one
+          # of: 'panic:', '--- FAIL:', 'Error', 'error', or 'FATAL'.
+          ERROR_LINE=$(echo "$LOGS" | grep -E '(panic:|--- FAIL:|Error|Fatal|Exception|error code|build error|TypeError|SyntaxError)' | head -5)
+          {
+            echo "error_line<<EOFMARKER"
+            echo "$ERROR_LINE"
+            echo "EOFMARKER"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Skip if autofix commit or duplicate
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ steps.failed.outputs.run_id }}
+        run: |
+          COMMIT_MSG=$(gh run view "$RUN_ID" --repo "$GH_REPO" --json headSha --jq '.headSha' | xargs -I{} gh api "repos/$GH_REPO/commits/{}" --jq '.commit.message')
+          if echo "$COMMIT_MSG" | grep -q '\[ci-autofix\]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping — this failure was caused by a ci-autofix commit"
+            exit 0
+          fi
+
+          # Skip if there's already an open autofix PR
+          OPEN_PR=$(gh pr list --repo "$GH_REPO" --state open --json headRefName --jq '[.[] | select(.headRefName | startswith("ci-autofix"))][0].headRefName // empty')
+          if [ -n "$OPEN_PR" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping — open autofix PR already exists on branch $OPEN_PR"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Telegram — started
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          ERROR_LINE: ${{ steps.failed.outputs.error_line }}
+          RUN_URL: ${{ steps.failed.outputs.run_url }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          SAFE_ERROR=$(printf '%s' "$ERROR_LINE" | head -c 300 | sed 's/[<>&]//g')
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=🤖 <b>Claude CI Autofix</b> взял в работу
+
+          <code>${SAFE_ERROR}</code>
+          🔗 <a href=\"${RUN_URL}\">Failed run</a>"
+
+      - name: Checkout code
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Setup pnpm
+        if: steps.guard.outputs.skip != 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          cd server && go mod download
+
+      - name: Run Claude Code
+        id: claude
+        if: steps.guard.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          show_full_output: true
+          allowed_bots: "github-actions,claude"
+          prompt: |
+            You are an automated CI fixer for a Go server (Chi router) + Next.js frontend monorepo.
+
+            ## Failed CI Run
+
+            - **Workflow**: ${{ github.event.workflow_run.name }}
+            - **Run URL**: ${{ steps.failed.outputs.run_url }}
+            - **Error lines**:
+            ```
+            ${{ steps.failed.outputs.error_line }}
+            ```
+
+            ## Full failed logs (last 200 lines)
+
+            Read the file `/tmp/failed-logs.txt` for the complete failed step output.
+
+            ## Steps
+
+            1. **Diagnose**: Read the error logs carefully. Identify the root cause.
+               Common multica CI failures:
+               - Go build/compile errors (unused import, undefined symbol, type mismatch)
+               - Go panic in tests (nil deref, index out of range, send on closed channel)
+               - sqlc-generated code mismatch (if .sql file was edited without `sqlc generate`)
+               - pnpm install lock-mismatch (pnpm-lock.yaml drift)
+               - Turbo build failure (TS type error, missing module, ESLint error blocking build)
+               - Migration failure on test DB bring-up
+               - flaky test (timeout, race in goroutine, ordering dependency)
+
+            2. **Fix**: Make the minimal fix that resolves the CI failure.
+               - If it's a Go compile error, fix it directly.
+               - If it's a sqlc drift, run `cd server && sqlc generate` and commit the regenerated file alongside the source `.sql` change.
+               - If it's a TS type error, fix the type or the call site (not by suppressing with `@ts-ignore`).
+               - Do NOT refactor unrelated code.
+
+            3. **Test**: Verify the fix locally:
+               - For Go: `cd server && go build ./...` to compile-check; then `cd server && go test -run '<TestName>' ./...` for the specific test if applicable.
+               - For TS: `pnpm turbo typecheck --filter='<package>'` if applicable.
+
+            4. **Lint**: `gofmt -w server/` on changed Go files. NO prettier (multica has no prettier dependency).
+
+            5. **PR**: Create a pull request:
+               - Branch: `git checkout -b ci-autofix-$(date +%s)`
+               - Title: `[no-ticket] fix(ci): <concise description>`
+               - Body first line: `multica: ci-autofix follow-up to main-branch CI failure on <SHA>`
+               - Then: link to failed run, root cause, what was fixed.
+               - Label: `ci-autofix`
+               - Commit message must contain `[ci-autofix]`
+
+            6. **Report**: Write a debug report at `/tmp/debug-report.txt`.
+               EXACTLY 4 lines, in Russian:
+               Line 1: что сломалось
+               Line 2: почему сломалось
+               Line 3: что починили
+               Line 4: затронутые файлы
+
+               Use: `printf '%s\n' 'line1' 'line2' 'line3' 'line4' > /tmp/debug-report.txt`
+
+            ## Rules
+
+            - Follow existing code patterns from CLAUDE.md.
+            - Do NOT modify unrelated files.
+            - Do NOT edit sqlc-generated files (`server/internal/db/*.sql.go`) — fix the source `.sql` and regenerate.
+            - If you cannot determine root cause with confidence, create the PR as draft.
+
+      - name: Auto-merge PR (with status-rollup guard)
+        if: success() && steps.guard.outputs.skip != 'true'
+        env:
+          # AGENT_PULSE_PAT triggers downstream workflow_run on the resulting
+          # main push (incl. release-watchdog M5). GITHUB_TOKEN merges silently
+          # skip workflow_run as anti-recursion.
+          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+        run: |
+          set -uo pipefail
+          PR_URL=$(gh pr list --repo "$GH_REPO" --json url,headRefName --jq '[.[] | select(.headRefName | startswith("ci-autofix"))][0].url // empty')
+          if [ -z "$PR_URL" ]; then exit 0; fi
+          PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+
+          # Status-rollup guard — refuse merge if any check is FAILURE/CANCELLED/TIMED_OUT.
+          ROLLUP=$(gh pr view "$PR_NUM" --repo "$GH_REPO" --json statusCheckRollup --jq '.statusCheckRollup')
+          FAILURES=$(echo "$ROLLUP" | jq -r '.[] | select(.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT") | .name' || true)
+          if [ -n "$FAILURES" ]; then
+            echo "::error::Refusing to auto-merge ci-autofix PR — failing checks: $FAILURES"
+            exit 0
+          fi
+
+          gh pr merge "$PR_URL" --auto --squash 2>&1 || echo "Auto-merge unavailable (branch protection may require approvals)"
+
+      - name: Find PR URL
+        id: pr
+        if: success() && steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL=$(gh pr list --repo "$GH_REPO" --json url,headRefName --jq '[.[] | select(.headRefName | startswith("ci-autofix"))][0].url // empty')
+          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup stale autofix branches
+        if: always() && steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete merged autofix branches (keep any with open PRs)
+          OPEN_BRANCHES=$(gh pr list --repo "$GH_REPO" --state open --json headRefName --jq '.[].headRefName' 2>/dev/null || true)
+          for BRANCH in $(git branch -r | grep 'origin/ci-autofix' | sed 's|origin/||'); do
+            if ! echo "$OPEN_BRANCHES" | grep -q "^${BRANCH}$"; then
+              git push origin --delete "$BRANCH" 2>/dev/null && echo "Deleted branch: $BRANCH" || true
+            fi
+          done
+
+      - name: Extract debug report
+        id: report
+        if: success() && steps.guard.outputs.skip != 'true'
+        run: |
+          if [ -f /tmp/debug-report.txt ]; then
+            SYMPTOM=$(sed -n '1p' /tmp/debug-report.txt)
+            ROOT=$(sed -n '2p' /tmp/debug-report.txt)
+            FIX=$(sed -n '3p' /tmp/debug-report.txt)
+            FILES=$(sed -n '4p' /tmp/debug-report.txt)
+          fi
+          echo "symptom=${SYMPTOM:-N/A}" >> "$GITHUB_OUTPUT"
+          echo "root=${ROOT:-N/A}" >> "$GITHUB_OUTPUT"
+          echo "fix=${FIX:-N/A}" >> "$GITHUB_OUTPUT"
+          echo "files=${FILES:-N/A}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Telegram — PR ready
+        if: success() && steps.guard.outputs.skip != 'true' && steps.pr.outputs.url != ''
+        env:
+          REPORT_SYMPTOM: ${{ steps.report.outputs.symptom }}
+          REPORT_ROOT: ${{ steps.report.outputs.root }}
+          REPORT_FIX: ${{ steps.report.outputs.fix }}
+          REPORT_FILES: ${{ steps.report.outputs.files }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          RUN_URL: ${{ steps.failed.outputs.run_url }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=✅ <b>Claude CI Autofix</b> — фикс готов!
+
+          <b>━━━ Баг-репорт ━━━</b>
+          🔴 <b>Что сломалось:</b> ${REPORT_SYMPTOM}
+          🔍 <b>Почему:</b> ${REPORT_ROOT}
+          🔧 <b>Что починили:</b> ${REPORT_FIX}
+          📁 <b>Файлы:</b> ${REPORT_FILES}
+          <b>━━━━━━━━━━━━━━━━━━━</b>
+
+          🔗 PR: <a href=\"${PR_URL}\">${PR_URL}</a>
+          🔗 Failed run: <a href=\"${RUN_URL}\">Actions</a>
+
+          Auto-merge включён ✅"
+
+      - name: Notify Telegram — no PR
+        if: success() && steps.guard.outputs.skip != 'true' && steps.pr.outputs.url == ''
+        env:
+          RUN_URL: ${{ steps.failed.outputs.run_url }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=⚠️ <b>Claude CI Autofix</b> завершил работу, но PR не создан
+
+          Проверь результат в <a href=\"${RUN_URL}\">Actions</a>"
+
+      - name: Notify Telegram — failed
+        if: failure() && steps.guard.outputs.skip != 'true'
+        env:
+          RUN_URL: ${{ steps.failed.outputs.run_url }}
+          ERROR_LINE: ${{ steps.failed.outputs.error_line }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          SAFE_ERROR=$(printf '%s' "$ERROR_LINE" | head -c 300 | sed 's/[<>&]//g')
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=❌ <b>Claude CI Autofix</b> не смог пофиксить
+
+          <code>${SAFE_ERROR}</code>
+
+          Нужен ручной фикс. <a href=\"${RUN_URL}\">Failed run</a>"
