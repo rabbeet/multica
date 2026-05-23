@@ -86,6 +86,12 @@ export type {
 export type { PinnedItem, PinnedItemType, CreatePinRequest, ReorderPinsRequest } from "./pin";
 export type { AgentQuestion, AgentCommand, AgentActions } from "./agent-actions";
 export type {
+  ActionInboxItem,
+  ListActionInboxResponse,
+  LatestAgentComment,
+  LatestSkill,
+} from "./action-inbox";
+export type {
   Autopilot,
   AutopilotStatus,
   AutopilotExecutionMode,

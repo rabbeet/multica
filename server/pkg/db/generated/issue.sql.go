@@ -779,6 +779,128 @@ func (q *Queries) ListOpenIssues(ctx context.Context, arg ListOpenIssuesParams) 
 	return items, nil
 }
 
+const listWorkspaceActionInbox = `-- name: ListWorkspaceActionInbox :many
+WITH latest_agent_comment AS (
+    SELECT DISTINCT ON (c.issue_id)
+        c.issue_id,
+        c.id          AS comment_id,
+        c.content     AS comment_content,
+        c.created_at  AS comment_created_at,
+        c.author_id   AS comment_author_id
+    FROM comment c
+    WHERE c.type = 'comment'
+      AND c.author_type = 'agent'
+    ORDER BY c.issue_id, c.created_at DESC
+),
+latest_skill AS (
+    SELECT DISTINCT ON (issue_id)
+        issue_id,
+        skill_slug,
+        status     AS skill_status,
+        updated_at AS skill_updated_at
+    FROM issue_skill_state
+    ORDER BY issue_id, updated_at DESC
+)
+SELECT
+    i.id, i.workspace_id, i.number, i.title, i.status, i.priority,
+    i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
+    i.updated_at, i.created_at,
+    lac.comment_id          AS latest_agent_comment_id,
+    lac.comment_content     AS latest_agent_comment_content,
+    lac.comment_created_at  AS latest_agent_comment_at,
+    lac.comment_author_id   AS latest_agent_author_id,
+    ls.skill_slug,
+    ls.skill_status,
+    ls.skill_updated_at
+FROM issue i
+LEFT JOIN latest_agent_comment lac ON lac.issue_id = i.id
+LEFT JOIN latest_skill         ls  ON ls.issue_id  = i.id
+WHERE i.workspace_id = $1
+  AND i.status IN ('todo','in_progress','waiting','planned','developing')
+ORDER BY
+    -- Issues with a recent agent comment surface first — that's where
+    -- the user's chip taps land. Then by most-recent activity.
+    (lac.comment_created_at IS NOT NULL) DESC,
+    GREATEST(lac.comment_created_at, i.updated_at) DESC NULLS LAST
+LIMIT 100
+`
+
+type ListWorkspaceActionInboxRow struct {
+	ID                        pgtype.UUID        `json:"id"`
+	WorkspaceID               pgtype.UUID        `json:"workspace_id"`
+	Number                    int32              `json:"number"`
+	Title                     string             `json:"title"`
+	Status                    string             `json:"status"`
+	Priority                  string             `json:"priority"`
+	AssigneeType              pgtype.Text        `json:"assignee_type"`
+	AssigneeID                pgtype.UUID        `json:"assignee_id"`
+	CreatorType               string             `json:"creator_type"`
+	CreatorID                 pgtype.UUID        `json:"creator_id"`
+	UpdatedAt                 pgtype.Timestamptz `json:"updated_at"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+	LatestAgentCommentID      pgtype.UUID        `json:"latest_agent_comment_id"`
+	LatestAgentCommentContent pgtype.Text        `json:"latest_agent_comment_content"`
+	LatestAgentCommentAt      pgtype.Timestamptz `json:"latest_agent_comment_at"`
+	LatestAgentAuthorID       pgtype.UUID        `json:"latest_agent_author_id"`
+	SkillSlug                 pgtype.Text        `json:"skill_slug"`
+	SkillStatus               pgtype.Text        `json:"skill_status"`
+	SkillUpdatedAt            pgtype.Timestamptz `json:"skill_updated_at"`
+}
+
+// PUL-231 Mission Control workspace inbox feed. One row per active
+// issue in the workspace, joined with the latest agent comment and
+// latest skill state. Returning the comment body in the same payload
+// lets the client parse open agent questions / ack-gated command
+// blocks with extractAgentActions() — no N+1 per-issue comment fetch.
+//
+// Active = status IN ('todo','in_progress','waiting','planned','developing').
+// Ordered to surface "agent posted, waiting on user" first: issues whose
+// latest event was an agent comment float above issues whose latest
+// event was a status change. Inside each group, most-recently-updated
+// wins, so the user's eye lands on what changed last.
+//
+// LIMIT 100 caps result size for the single-user MVP; pagination
+// arrives with PR2.5 if a workspace ever needs more.
+func (q *Queries) ListWorkspaceActionInbox(ctx context.Context, workspaceID pgtype.UUID) ([]ListWorkspaceActionInboxRow, error) {
+	rows, err := q.db.Query(ctx, listWorkspaceActionInbox, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkspaceActionInboxRow{}
+	for rows.Next() {
+		var i ListWorkspaceActionInboxRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Number,
+			&i.Title,
+			&i.Status,
+			&i.Priority,
+			&i.AssigneeType,
+			&i.AssigneeID,
+			&i.CreatorType,
+			&i.CreatorID,
+			&i.UpdatedAt,
+			&i.CreatedAt,
+			&i.LatestAgentCommentID,
+			&i.LatestAgentCommentContent,
+			&i.LatestAgentCommentAt,
+			&i.LatestAgentAuthorID,
+			&i.SkillSlug,
+			&i.SkillStatus,
+			&i.SkillUpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markIssueFirstExecuted = `-- name: MarkIssueFirstExecuted :one
 
 UPDATE issue

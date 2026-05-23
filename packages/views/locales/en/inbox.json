@@ -58,5 +58,22 @@
     "archive_all_failed": "Failed to archive all",
     "archive_all_read_failed": "Failed to archive read items",
     "archive_completed_failed": "Failed to archive completed"
+  },
+  "mission_control": {
+    "title": "Mission Control",
+    "nav_label": "Mission Control",
+    "needs_action": "⚡ Needs your action ({{count}})",
+    "in_progress_collapsed": "◯ In progress ({{count}} · tap to expand)",
+    "inbox_zero_headline": "🎉 Inbox zero.",
+    "inbox_zero_subtitle_with_active": "{{count}} active issues, none waiting on you right now.",
+    "inbox_zero_subtitle_no_active": "No active issues — create one to get started.",
+    "loading": "Loading…",
+    "error_title": "Couldn't load Mission Control",
+    "error_retry": "Retry",
+    "density_compact": "Compact",
+    "density_expanded": "Expanded",
+    "density_toggle_aria": "Toggle row density",
+    "open_details_aria": "Open issue {{identifier}} details",
+    "ago": "{{relative}}"
   }
 }

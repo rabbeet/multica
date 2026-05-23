@@ -132,6 +132,31 @@ export function issueSkillStatesOptions(issueId: string) {
   });
 }
 
+/**
+ * PUL-231 Mission Control workspace inbox.
+ *
+ * One HTTP call returns up to 100 active issues pre-joined with their
+ * latest agent comment + skill state — the client parses the comment
+ * body via extractAgentActions() to render chip rows inline, no N+1.
+ *
+ * PR2 ships without a WS subscription on this query; we refetch every
+ * 15s instead. The cadence is short enough that "new agent question
+ * arrives, user sees it on the next tick" feels live without the
+ * complexity budget of a per-row WS subscriber. PR2.5 will swap the
+ * interval for `useWSEvent('comment:created')` invalidation.
+ */
+export const actionInboxKey = (wsId: string) =>
+  ["action-inbox", wsId] as const;
+
+export function actionInboxOptions(wsId: string) {
+  return queryOptions({
+    queryKey: actionInboxKey(wsId),
+    queryFn: () => api.listActionInbox(wsId),
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: "always" as const,
+  });
+}
+
 export function childIssueProgressOptions(wsId: string) {
   return queryOptions({
     queryKey: issueKeys.childProgress(wsId),
