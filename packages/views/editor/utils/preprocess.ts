@@ -1,5 +1,6 @@
 import { preprocessLinks, preprocessMentionShortcodes, preprocessFileCards } from "@multica/ui/markdown";
 import { configStore } from "@multica/core/config";
+import { preprocessAgentActions } from "./preprocess-agent-actions";
 
 /**
  * Preprocess a markdown string before loading into Tiptap via contentType: 'markdown'.
@@ -8,18 +9,29 @@ import { configStore } from "@multica/core/config";
  * It does NOT convert to HTML — that was the old markdownToHtml.ts pipeline which
  * was deleted in the April 2026 refactor.
  *
- * Three string→string transforms on raw Markdown:
+ * Four string→string transforms on raw Markdown:
  * 1. Legacy mention shortcodes [@ id="..." label="..."] → [@Label](mention://member/id)
  *    (old serialization format in database, migrated on read)
  * 2. Raw URLs → markdown links via linkify-it (so they render as clickable Link nodes)
  * 3. File card syntax (new !file[name](url) + legacy [name](cdnUrl)) → HTML div for
  *    fileCard node parsing
+ * 4. (Agent comments only) Numbered questions + ack-gated command blocks →
+ *    inline `<div data-type="agentQuestion" …>` / `<div data-type="agentCommandBlock" …>`
+ *    markers, picked up by the readonly renderer's components.div override
+ *    (PUL-231 inline action chips). Skipped entirely when `isAgent=false`,
+ *    so member-authored comments are unaffected.
+ *
+ * @param markdown   Raw markdown.
+ * @param isAgent    Author was an agent — enables step 4. Defaults to false so
+ *                   non-comment surfaces (issue description, autopilot detail)
+ *                   stay on the legacy three-step pipeline.
  */
-export function preprocessMarkdown(markdown: string): string {
+export function preprocessMarkdown(markdown: string, isAgent: boolean = false): string {
   if (!markdown) return "";
   const cdnDomain = configStore.getState().cdnDomain;
   const step1 = preprocessMentionShortcodes(markdown);
   const step2 = preprocessLinks(step1);
   const step3 = preprocessFileCards(step2, cdnDomain);
-  return step3;
+  const step4 = preprocessAgentActions(step3, isAgent);
+  return step4;
 }
