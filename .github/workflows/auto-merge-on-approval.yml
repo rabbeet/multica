@@ -1,0 +1,174 @@
+# Ported from rabbeet/Pulse @ 74cf64d5 (PUL-235 M3, 2026-05-23) as part of
+# the Approach C lift-and-shift. Functionally byte-equivalent — no multica
+# tool swaps needed (this workflow uses only gh CLI + jq + bash, no
+# language-specific tooling).
+#
+# Multica deltas vs Pulse source:
+#   - None functional. Workflow body is identical.
+#   - PUL-49/PUL-143 incident references in comments retain their Pulse
+#     issue numbers because the lessons originate there. Once PUL-236
+#     extracts to a reusable workflow this distinction disappears.
+#
+# Deterministic auto-merge for claude-approved PRs.
+#
+# Replaces the `gh pr merge --squash --auto` call that previously lived inside
+# the Claude prompt in `code-review.yml`. That arrangement was prompt-instruction,
+# not enforcement — the model could (and did, see Pulse PUL-143 incident on
+# 2026-05-16/17) skip the status-rollup guard and merge a red-CI PR.
+#
+# This workflow runs deterministic bash, not LLM-generated bash. It merges
+# only when ALL of the following are true:
+#   1. PR is OPEN and not DRAFT.
+#   2. PR has the `claude-approved` label (set by M2's code-review.yml).
+#   3. PR does NOT have `needs-human-review` or `claude-fix-needed`.
+#   4. The latest CI workflow_run for the current head SHA completed with
+#      conclusion=success.
+#   5. The PR head SHA has not moved since the CI run we are gating on
+#      (no stale-rollup merges).
+#
+# Triggers:
+#   - workflow_run completed for the CI workflow: handles "label set first,
+#     then CI eventually goes green" case.
+#   - pull_request labeled with `claude-approved`: handles "CI already green
+#     when Claude approves" case.
+
+name: Auto-merge on approval
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  maybe_merge:
+    if: |
+      (github.event_name == 'pull_request' && github.event.label.name == 'claude-approved')
+      || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve PR number and head SHA
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER_EVT: ${{ github.event.pull_request.number }}
+          HEAD_SHA_PR: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA_WR: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUMBER="$PR_NUMBER_EVT"
+            HEAD_SHA="$HEAD_SHA_PR"
+          else
+            HEAD_SHA="$HEAD_SHA_WR"
+            # workflow_run.pull_requests is frequently empty on same-repo PRs
+            # (GitHub payload quirk). Resolve via commits/<sha>/pulls instead.
+            PR_NUMBER=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" \
+              --jq '[.[] | select(.state == "open")][0].number // empty')
+          fi
+          if [[ -z "${PR_NUMBER:-}" ]]; then
+            echo "No open PR found for head $HEAD_SHA — nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Verify gates
+        id: gates
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+
+          PR_JSON=$(gh pr view "$PR" --repo "$GH_REPO" \
+            --json state,isDraft,labels,headRefOid)
+          STATE=$(echo "$PR_JSON" | jq -r .state)
+          IS_DRAFT=$(echo "$PR_JSON" | jq -r .isDraft)
+          HEAD_OID=$(echo "$PR_JSON" | jq -r .headRefOid)
+
+          if [[ "$STATE" != "OPEN" ]]; then
+            echo "PR #$PR state=$STATE — skip."
+            exit 0
+          fi
+          if [[ "$IS_DRAFT" == "true" ]]; then
+            echo "PR #$PR is draft — skip."
+            exit 0
+          fi
+          if [[ "$HEAD_OID" != "$HEAD_SHA" ]]; then
+            echo "Head moved: gating on $HEAD_SHA but PR head is now $HEAD_OID — skip."
+            exit 0
+          fi
+
+          HAS_APPROVED=$(echo "$PR_JSON" \
+            | jq '[.labels[] | select(.name == "claude-approved")] | length')
+          if [[ "$HAS_APPROVED" -eq 0 ]]; then
+            echo "PR #$PR has no claude-approved label — skip."
+            exit 0
+          fi
+
+          for blocker in needs-human-review claude-fix-needed; do
+            BLOCKED=$(echo "$PR_JSON" \
+              | jq --arg n "$blocker" '[.labels[] | select(.name == $n)] | length')
+            if [[ "$BLOCKED" -gt 0 ]]; then
+              echo "PR #$PR blocked by label $blocker — skip."
+              exit 0
+            fi
+          done
+
+          # The CI workflow must have completed with conclusion=success for THIS head SHA.
+          CI_RUN=$(gh api "repos/$GH_REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request" \
+            --jq '[.workflow_runs[] | select(.name == "CI")] | sort_by(.created_at) | last')
+          if [[ -z "$CI_RUN" || "$CI_RUN" == "null" ]]; then
+            echo "No CI workflow_run found yet for head $HEAD_SHA — skip (will retry when CI completes)."
+            exit 0
+          fi
+          CI_STATUS=$(echo "$CI_RUN" | jq -r .status)
+          CI_CONCLUSION=$(echo "$CI_RUN" | jq -r .conclusion)
+          if [[ "$CI_STATUS" != "completed" ]]; then
+            echo "CI workflow_run status=$CI_STATUS — skip (will retry when CI completes)."
+            exit 0
+          fi
+          if [[ "$CI_CONCLUSION" != "success" ]]; then
+            echo "::error::CI conclusion=$CI_CONCLUSION — refusing to merge PR #$PR."
+            exit 1
+          fi
+
+          echo "All gates green — passing PR #$PR to the merge step."
+          echo "merge=true" >> "$GITHUB_OUTPUT"
+
+      - name: Diagnostic — secret length
+        if: steps.gates.outputs.merge == 'true'
+        env:
+          PAT: ${{ secrets.AGENT_PULSE_PAT }}
+        run: |
+          # Print only length, not value — confirms whether the secret is
+          # accessible to this workflow context (workflow_run vs pull_request).
+          # Empty → secret missing or out-of-scope; non-zero → secret present.
+          echo "AGENT_PULSE_PAT length: ${#PAT}"
+
+      - name: Merge with PAT
+        if: steps.gates.outputs.merge == 'true'
+        env:
+          # AGENT_PULSE_PAT triggers downstream workflows on the resulting
+          # main push (GITHUB_TOKEN-authored pushes do not, per GitHub policy).
+          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh pr merge "$PR" --repo "$GH_REPO" --squash --delete-branch
+          gh pr comment "$PR" --repo "$GH_REPO" \
+            --body "🤖 Auto-merged by \`auto-merge-on-approval.yml\`: CI ✅ and \`claude-approved\` label present."
