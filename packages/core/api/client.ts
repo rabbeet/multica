@@ -805,6 +805,17 @@ export class ApiClient {
     return this.fetch(`/api/issues/${issueId}/active-task`);
   }
 
+  // PUL-231 Mission Control workspace inbox. One request returns up to
+  // 100 active issues pre-joined with their latest agent comment + skill
+  // state. Re-fetched on a short react-query refetchInterval in lieu of
+  // a WS subscription in PR2 (see actionInboxOptions for the cadence).
+  async listActionInbox(
+    workspaceId: string,
+  ): Promise<import("@multica/core/types").ListActionInboxResponse> {
+    const search = new URLSearchParams({ workspace_id: workspaceId });
+    return this.fetch(`/api/action-inbox?${search.toString()}`);
+  }
+
   async listTaskMessages(taskId: string): Promise<TaskMessagePayload[]> {
     return this.fetch(`/api/tasks/${taskId}/messages`);
   }

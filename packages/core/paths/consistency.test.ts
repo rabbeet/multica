@@ -22,6 +22,7 @@ describe("paths.workspace() shape", () => {
         "autopilots",
         "agents",
         "inbox",
+        "missionControl",
         "myIssues",
         "runtimes",
         "skills",
@@ -40,6 +41,10 @@ describe("paths.workspace() shape", () => {
       ["autopilots", "autopilots"],
       ["agents", "agents"],
       ["inbox", "inbox"],
+      // PUL-231 — Mission Control is intentionally nested under
+      // /inbox/* so the existing inbox surface stays at its URL and
+      // the new one slots in alongside it.
+      ["missionControl", "inbox/mission-control"],
       ["myIssues", "my-issues"],
       ["runtimes", "runtimes"],
       ["skills", "skills"],

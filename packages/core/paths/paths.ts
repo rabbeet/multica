@@ -27,6 +27,9 @@ function workspaceScoped(slug: string) {
     agents: () => `${ws}/agents`,
     agentDetail: (id: string) => `${ws}/agents/${encode(id)}`,
     inbox: () => `${ws}/inbox`,
+    // PUL-231 Mission Control — workspace-level action inbox (replaces
+    // entering individual issues for routine ack flows).
+    missionControl: () => `${ws}/inbox/mission-control`,
     myIssues: () => `${ws}/my-issues`,
     runtimes: () => `${ws}/runtimes`,
     runtimeDetail: (id: string) => `${ws}/runtimes/${encode(id)}`,
