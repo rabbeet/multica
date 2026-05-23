@@ -170,3 +170,62 @@ UPDATE issue
 SET first_executed_at = now()
 WHERE id = $1 AND first_executed_at IS NULL
 RETURNING id, workspace_id, creator_type, creator_id, first_executed_at;
+
+-- name: ListWorkspaceActionInbox :many
+-- PUL-231 Mission Control workspace inbox feed. One row per active
+-- issue in the workspace, joined with the latest agent comment and
+-- latest skill state. Returning the comment body in the same payload
+-- lets the client parse open agent questions / ack-gated command
+-- blocks with extractAgentActions() — no N+1 per-issue comment fetch.
+--
+-- Active = status IN ('todo','in_progress','waiting','planned','developing').
+-- Ordered to surface "agent posted, waiting on user" first: issues whose
+-- latest event was an agent comment float above issues whose latest
+-- event was a status change. Inside each group, most-recently-updated
+-- wins, so the user's eye lands on what changed last.
+--
+-- LIMIT 100 caps result size for the single-user MVP; pagination
+-- arrives with PR2.5 if a workspace ever needs more.
+WITH latest_agent_comment AS (
+    SELECT DISTINCT ON (c.issue_id)
+        c.issue_id,
+        c.id          AS comment_id,
+        c.content     AS comment_content,
+        c.created_at  AS comment_created_at,
+        c.author_id   AS comment_author_id
+    FROM comment c
+    WHERE c.type = 'comment'
+      AND c.author_type = 'agent'
+    ORDER BY c.issue_id, c.created_at DESC
+),
+latest_skill AS (
+    SELECT DISTINCT ON (issue_id)
+        issue_id,
+        skill_slug,
+        status     AS skill_status,
+        updated_at AS skill_updated_at
+    FROM issue_skill_state
+    ORDER BY issue_id, updated_at DESC
+)
+SELECT
+    i.id, i.workspace_id, i.number, i.title, i.status, i.priority,
+    i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
+    i.updated_at, i.created_at,
+    lac.comment_id          AS latest_agent_comment_id,
+    lac.comment_content     AS latest_agent_comment_content,
+    lac.comment_created_at  AS latest_agent_comment_at,
+    lac.comment_author_id   AS latest_agent_author_id,
+    ls.skill_slug,
+    ls.skill_status,
+    ls.skill_updated_at
+FROM issue i
+LEFT JOIN latest_agent_comment lac ON lac.issue_id = i.id
+LEFT JOIN latest_skill         ls  ON ls.issue_id  = i.id
+WHERE i.workspace_id = $1
+  AND i.status IN ('todo','in_progress','waiting','planned','developing')
+ORDER BY
+    -- Issues with a recent agent comment surface first — that's where
+    -- the user's chip taps land. Then by most-recent activity.
+    (lac.comment_created_at IS NOT NULL) DESC,
+    GREATEST(lac.comment_created_at, i.updated_at) DESC NULLS LAST
+LIMIT 100;
