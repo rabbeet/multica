@@ -14,6 +14,8 @@ export {
   installOfflineCommentDrain,
   type QueuedComment,
 } from "./offline-comment-queue";
+export { useLastVisitStore } from "./last-visit-store";
+export { useDensityStore, type InboxDensity } from "./density-store";
 export {
   myIssuesViewStore,
   type MyIssuesViewState,
