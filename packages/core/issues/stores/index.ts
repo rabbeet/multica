@@ -16,6 +16,7 @@ export {
 } from "./offline-comment-queue";
 export { useLastVisitStore } from "./last-visit-store";
 export { useDensityStore, type InboxDensity } from "./density-store";
+export { useTldrCollapseStore } from "./tldr-collapse-store";
 export {
   myIssuesViewStore,
   type MyIssuesViewState,
