@@ -4,7 +4,7 @@ name: auto-gofmt
 # 2026-05-23) as part of the Approach C lift-and-shift.
 #
 # Auto-fix gofmt drift on agent-* PRs. Runs `gofmt -w server/`, commits the
-# diff back as `[autofix] gofmt`, and pushes via AGENT_PULSE_PAT so the
+# diff back as `[autofix] gofmt`, and pushes via GH_AUTOFIX_TOKEN so the
 # resulting push retriggers CI (gofmt diff is one of CI's failure modes —
 # multica's CI runs `go build ./...` which doesn't fail on format alone, but
 # the future M2 code-review prompt instructs Claude to refuse style nits,
@@ -15,7 +15,7 @@ name: auto-gofmt
 #     `composer install` — Go ships `gofmt` with the toolchain via setup-go.
 #   - Author identity kept as `pulse-autofix-bot` (matches Pulse) — the
 #     loop-guard pattern (skip if HEAD authored by the bot) MUST match across
-#     repos because we share `AGENT_PULSE_PAT`. Changing the email would
+#     repos because we share `GH_AUTOFIX_TOKEN`. Changing the email would
 #     also require coordinating PAT identity changes. Future PUL-236
 #     extraction may unify into `multica-autofix-bot` — out of scope here.
 #   - JS/TS autofix (e.g. ESLint --fix) is OUT OF SCOPE for M3: pint covered
@@ -31,7 +31,7 @@ name: auto-gofmt
 # re-run this workflow. Early-exit if HEAD's commit is authored by
 # `pulse-autofix-bot`.
 #
-# Required secret: AGENT_PULSE_PAT. GITHUB_TOKEN cannot be used — pushes by
+# Required secret: GH_AUTOFIX_TOKEN. GITHUB_TOKEN cannot be used — pushes by
 # GITHUB_TOKEN do not trigger downstream workflow runs (intentional GitHub
 # policy), and we *want* the trigger so the lint job re-runs and goes green.
 # PAT rotation: refresh annually. If the PAT expires the workflow fails at
@@ -59,10 +59,10 @@ jobs:
       - name: PAT presence check
         id: pat_check
         env:
-          PAT: ${{ secrets.AGENT_PULSE_PAT }}
+          PAT: ${{ secrets.GH_AUTOFIX_TOKEN }}
         run: |
           if [ -z "$PAT" ]; then
-              echo "::warning::AGENT_PULSE_PAT not configured — auto-gofmt skipped"
+              echo "::warning::GH_AUTOFIX_TOKEN not configured — auto-gofmt skipped"
               echo "skip=true" >> "$GITHUB_OUTPUT"
           else
               echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -72,7 +72,7 @@ jobs:
         id: guard
         if: steps.pat_check.outputs.skip != 'true'
         # Read-only commit lookup — github.token (auto-injected GITHUB_TOKEN)
-        # is sufficient. AGENT_PULSE_PAT is reserved for write-side steps
+        # is sufficient. GH_AUTOFIX_TOKEN is reserved for write-side steps
         # (checkout token + push) where it must be the trigger-eligible PAT.
         env:
           GH_TOKEN: ${{ github.token }}
@@ -95,7 +95,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
-          token: ${{ secrets.AGENT_PULSE_PAT }}
+          token: ${{ secrets.GH_AUTOFIX_TOKEN }}
           fetch-depth: 0
 
       - name: Setup Go

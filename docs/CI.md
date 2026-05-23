@@ -59,14 +59,14 @@ workflows will fail at secret resolution.
 | Secret | Used by | Source |
 |---|---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | code-review, code-review-fix, ci-autofix, pr-test-autofix | `op://Pulse-Dev/Pulse-env/CLAUDE_CODE_OAUTH_TOKEN` |
-| `AGENT_PULSE_PAT` | auto-gofmt, auto-merge-on-approval, code-review-fix, ci-autofix, pr-test-autofix | `op://Pulse-Dev/Pulse-env/AGENT_PULSE_PAT` (same PAT shared with Pulse; `pulse-autofix-bot` identity already has rights on this repo) |
+| `GH_AUTOFIX_TOKEN` | auto-gofmt, auto-merge-on-approval, code-review-fix, ci-autofix, pr-test-autofix | `op://Pulse-Dev/Pulse-env/GH_AUTOFIX_TOKEN` (same PAT shared with Pulse; `pulse-autofix-bot` identity already has rights on this repo) |
 | `TELEGRAM_BOT_TOKEN` | code-review, ci-autofix, post-merge-release-watchdog, pr-test-autofix | `op://Pulse-Dev/Pulse-env/TELEGRAM_BOT_TOKEN` |
 | `TELEGRAM_CHAT_ID` | (same as above) | `op://Pulse-Dev/Pulse-env/TELEGRAM_CHAT_ID` |
 
 One-liner to provision (run from a machine with 1Password CLI + `gh` auth):
 
 ```bash
-for K in CLAUDE_CODE_OAUTH_TOKEN AGENT_PULSE_PAT TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
+for K in CLAUDE_CODE_OAUTH_TOKEN GH_AUTOFIX_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
   gh secret set --repo rabbeet/multica "$K" --body "$(op read "op://Pulse-Dev/Pulse-env/$K")"
 done
 ```
@@ -75,7 +75,7 @@ done
 
 ## PAT rotation
 
-`AGENT_PULSE_PAT` is owned at the `rabbeet`-org level. PUL-141 documents the
+`GH_AUTOFIX_TOKEN` is owned at the `rabbeet`-org level. PUL-141 documents the
 2026-05-17 PAT-death incident (post-`clickavia → rabbeet` ownership transfer).
 Annual rotation, calendar-tracked. When rotated, refresh in all three repos
 (Pulse + multica + multica-server) in the same maintenance window.

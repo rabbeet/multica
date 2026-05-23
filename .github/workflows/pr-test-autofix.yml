@@ -340,12 +340,12 @@ jobs:
 
             PR: <a href="${{ env.PR_URL }}">#${{ env.PR }}</a>
 
-      - name: Checkout PR branch (AGENT_PULSE_PAT for downstream-trigger pushes)
+      - name: Checkout PR branch (GH_AUTOFIX_TOKEN for downstream-trigger pushes)
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.preflight.outputs.head_branch }}
           fetch-depth: 0
-          token: ${{ secrets.AGENT_PULSE_PAT }}
+          token: ${{ secrets.GH_AUTOFIX_TOKEN }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -522,7 +522,7 @@ jobs:
       - name: Notify Telegram — reverted (bad pattern caught, label)
         if: failure() && steps.grep_check.outputs.passed == 'false'
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+          GH_TOKEN: ${{ secrets.GH_AUTOFIX_TOKEN }}
         run: |
           gh pr edit "$PR" --repo "$GH_REPO" --add-label needs-human-review || true
 
@@ -544,7 +544,7 @@ jobs:
            steps.claude.outcome == 'failure' ||
            (steps.claude.outcome == 'success' && steps.grep_check.outcome != 'success' && steps.grep_check.outputs.passed != 'false'))
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+          GH_TOKEN: ${{ secrets.GH_AUTOFIX_TOKEN }}
         run: |
           gh pr edit "$PR" --repo "$GH_REPO" --add-label needs-human-review || true
 
@@ -566,7 +566,7 @@ jobs:
       - name: Safety net — push failure (label)
         if: failure() && steps.grep_check.outputs.passed == 'true' && steps.push.outcome == 'failure'
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PULSE_PAT }}
+          GH_TOKEN: ${{ secrets.GH_AUTOFIX_TOKEN }}
         run: |
           gh pr edit "$PR" --repo "$GH_REPO" --add-label needs-human-review || true
 
