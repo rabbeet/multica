@@ -1,0 +1,262 @@
+name: Claude Review Fix
+
+# Ported from rabbeet/Pulse @ 74cf64d5 (PUL-235 M2, 2026-05-23) as part of the
+# Approach C lift-and-shift. Multica deltas vs Pulse source:
+#   - `sentry-autofix` removed from skip-labels (PUL-235 Q2 = drop Sentry).
+#   - Setup steps: shivammathur/setup-php@v2 + composer + `cp .env.example .env`
+#     + `php artisan key:generate` + `npm ci` + `npm run build` → REPLACED with
+#     actions/setup-go@v5 (from server/go.mod) + pnpm/action-setup@v4 +
+#     actions/setup-node@v6 + `pnpm install --frozen-lockfile` +
+#     `cd server && go mod download`. multica has no `.env` requirement for
+#     Go server tests; pnpm/turbo cache handles JS deps.
+#   - HUSKY env removed (multica has no husky pre-commit hooks).
+#   - Prompt Step 4 (Validate): `php artisan test --compact` → `cd server &&
+#     go test ./...`; `vendor/bin/pint --dirty` → `gofmt -w server/`;
+#     `npx prettier --write` → `pnpm prettier --write`; `npx tsc --noEmit` +
+#     `npx svelte-check` → `pnpm turbo typecheck lint`.
+#   - claude_args allowedTools: `php`/`vendor/bin/pint`/`npx`/`npm run` →
+#     `go`/`gofmt`/`pnpm`.
+# Single source of truth lives at PUL-236 (reusable-workflow refactor) when it
+# lands; until then keep in sync with Pulse by hand.
+
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: claude-fix-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  fix-review:
+    if: |
+      github.event.label.name == 'claude-fix-needed' &&
+      !contains(github.event.pull_request.labels.*.name, 'needs-human-review') &&
+      !contains(github.event.pull_request.labels.*.name, 'claude-approved') &&
+      !contains(github.event.pull_request.labels.*.name, 'ci-autofix') &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+
+    steps:
+      - name: Determine fix round
+        id: round
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ROUND=$(gh pr view ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --json labels --jq '[.labels[].name | select(startswith("fix-round-"))] | length')
+          echo "round=$ROUND" >> "$GITHUB_OUTPUT"
+          echo "Fix round: $ROUND"
+
+          if [ "$ROUND" -ge 3 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping — exceeded max rounds"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify Telegram — fix started
+        if: steps.round.outputs.skip != 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Pass untrusted PR fields via env to avoid shell injection on PR title.
+          # Pulse source has the same bug at this site — back-port recommended
+          # as a follow-up to PUL-235.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ROUND: ${{ steps.round.outputs.round }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=🔧 <b>Claude Review Fix</b> взял PR в работу (round ${ROUND}/3)
+
+          PR: <a href=\"${PR_URL}\">#${PR_NUMBER} ${PR_TITLE}</a>"
+
+      - name: Checkout PR branch
+        if: steps.round.outputs.skip != 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.AGENT_PULSE_PAT }}
+
+      - name: Setup Go
+        if: steps.round.outputs.skip != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Setup pnpm
+        if: steps.round.outputs.skip != 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        if: steps.round.outputs.skip != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Dependencies
+        if: steps.round.outputs.skip != 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          cd server && go mod download
+
+      - name: Configure git
+        if: steps.round.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Claude Fix Review Comments
+        if: steps.round.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Reviewer (claude[bot]) is the actor that adds claude-fix-needed.
+          # Without this, claude-code-action blocks bot-initiated runs as
+          # an anti-loop measure.
+          allowed_bots: "claude"
+          additional_permissions: |
+            actions: read
+          prompt: |
+            You are fixing code review comments on PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
+            This is fix round ${{ steps.round.outputs.round }} of 3.
+
+            ## Step 1: Understand context
+
+            1. Read CLAUDE.md for project conventions.
+            2. Read the PR description for business context:
+               ```bash
+               gh pr view ${{ github.event.pull_request.number }} --json body --jq '.body'
+               ```
+            3. Get the current PR diff for full context:
+               ```bash
+               gh pr diff ${{ github.event.pull_request.number }}
+               ```
+
+            ## Step 2: Read review comments
+
+            Read the review comments that need fixing. Only fix [critical] and [warning] severity. Ignore [nit].
+
+            Get the timestamp of the last auto-review-fix commit (to filter out stale comments from prior rounds):
+            ```bash
+            LAST_FIX=$(git log --all --oneline --grep='\[auto-review-fix\]' -1 --format='%aI' 2>/dev/null || echo "1970-01-01T00:00:00Z")
+            echo "Last fix commit: $LAST_FIX"
+            ```
+
+            Read inline review comments, filtering to only those created AFTER the last fix commit:
+            ```bash
+            gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments" \
+              --paginate --jq '.[] | select(.body | test("\\[(critical|warning)\\]"; "i")) | {path, line: (.line // .original_line), created_at, body}'
+            ```
+
+            If LAST_FIX is not "1970-01-01T00:00:00Z", only process comments where created_at > LAST_FIX.
+            If no comments match, post a PR comment "No actionable review comments found for this round" and exit.
+
+            ## Step 3: Fix issues
+
+            For each review comment:
+            1. Read the referenced file and line number to understand the context.
+            2. Fix each issue. Make minimal, targeted changes.
+
+            ## Step 4: Validate
+
+            After fixing all issues, run validation:
+            ```bash
+            cd server && go test ./...
+            cd .. && gofmt -w server/
+            ```
+
+            If any JS/TS files were changed, also run:
+            ```bash
+            pnpm prettier --write <changed files>
+            pnpm turbo typecheck lint --filter='!@multica/docs'
+            ```
+
+            ## Step 5: Commit and push
+
+            ```bash
+            git add -A
+            git commit -m "fix(review): address round ${{ steps.round.outputs.round }} findings [auto-review-fix]"
+            git push
+            ```
+
+            ## Rules
+
+            - Fix ONLY the issues raised in review comments
+            - Do NOT refactor unrelated code
+            - Do NOT add features or improvements beyond what's requested
+            - Do NOT edit sqlc-generated files (`server/internal/db/*.sql.go`) — fix the underlying `.sql` or `sqlc.yaml` instead
+            - If a review comment is unclear or you disagree, fix it anyway (reviewer will re-check)
+            - If tests fail after your fix, investigate and fix the test failure too
+            - Follow existing code patterns from CLAUDE.md
+          claude_args: >-
+            --model claude-sonnet-4-6
+            --effort max
+            --allowedTools
+            "Read,Glob,Grep,Edit,Write,
+            Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),
+            Bash(gh api:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),
+            Bash(go:*),Bash(gofmt:*),Bash(pnpm:*),Bash(echo:*)"
+
+      - name: Remove fix-needed label
+        if: always() && steps.round.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} --remove-label "claude-fix-needed" || true
+
+      - name: Handle failure
+        if: failure() && steps.round.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Add needs-human-review on failure
+          gh pr edit "$PR_NUMBER" --add-label "needs-human-review" || true
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=❌ <b>Claude Review Fix</b> не смог пофиксить
+
+          PR: <a href=\"${PR_URL}\">#${PR_NUMBER} ${PR_TITLE}</a>
+          Run: <a href=\"${RUN_URL}\">Actions</a>
+
+          Нужен ручной фикс."
+
+      - name: Notify Telegram — fix pushed
+        if: success() && steps.round.outputs.skip != 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ROUND: ${{ steps.round.outputs.round }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=✅ <b>Claude Review Fix</b> запушил фиксы (round ${ROUND}/3)
+
+          PR: <a href=\"${PR_URL}\">#${PR_NUMBER} ${PR_TITLE}</a>
+
+          Ожидаем повторное ревью..."
