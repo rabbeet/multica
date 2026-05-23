@@ -388,19 +388,12 @@ func TestEvent_NumericID(t *testing.T) {
 // package and the poll classifier is supposed to emit it, the test
 // fails until classify.go learns about it.
 //
-// EventTypePRTitleEdit is deliberately NOT required of the poll
-// classifier: REST /events strips the `changes` field needed to
-// detect title edits, so the poll path is structurally blind to that
-// event. The webhook adapter (server/internal/webhooks/github)
-// continues to emit it on its own channel. PUL-185.
-//
-// PUL-212: EventTypeCIFailure and EventTypePRReviewChange are also
-// no longer required — the classifier arms now return ErrSkip
-// because autofix-pipeline in rabbeet/Pulse owns those failure
-// modes inside the PR. The constants remain in webhooks/event.go
-// (marked Deprecated) so the cascade_retrigger CHECK constraint
-// stays compatible with legacy rows during the migration-drain
-// transition.
+// PUL-212: EventTypeCIFailure and EventTypePRReviewChange are not
+// required — the classifier arms return ErrSkip because the autofix
+// pipeline in rabbeet/Pulse owns those failure modes inside the PR.
+// The constants remain in webhooks/event.go (marked Deprecated) so
+// the cascade_retrigger CHECK constraint stays compatible with
+// legacy rows during the migration-drain transition.
 func TestClassify_AllEventTypesCovered(t *testing.T) {
 	required := map[string]bool{
 		webhooks.EventTypePRMerged: true,
@@ -416,8 +409,7 @@ func TestClassify_AllEventTypesCovered(t *testing.T) {
 // classifier can produce. Hardcoded mirror of classify.go — kept in
 // sync manually. If a reviewer adds a new EventType branch, they must
 // add it here too; TestClassify_AllEventTypesCovered fails on
-// omission. EventTypePRTitleEdit is omitted on purpose — see test
-// doc-comment above. PUL-212 also dropped EventTypeCIFailure and
+// omission. PUL-212 dropped EventTypeCIFailure and
 // EventTypePRReviewChange — the classifier arms exist but return
 // ErrSkip without producing a TriggerEvent.
 func allClassifierOutputs() []string {

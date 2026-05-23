@@ -174,14 +174,10 @@ func (c Classifier) classifyPullRequest(ctx context.Context, repo string, eventI
 	// Action gate runs BEFORE title hydration so non-merge events
 	// (opened / closed-unmerged / reopened / labeled / edited / …)
 	// short-circuit without burning an HTTP round-trip on a title
-	// the caller will throw away. PUL-216. The "edited" arm was
-	// previously wired to EventTypePRTitleEdit via changes.title.from,
-	// but REST /events strips the `changes` field, so that branch
-	// was poll-blind by construction. Webhook channel was the
-	// canonical source for pr_title_edit but the inbound adapter
-	// was removed in PUL-166 PR5, so EventTypePRTitleEdit has no
-	// live source and is marked Deprecated in webhooks/event.go.
-	// PUL-185 + PUL-212.
+	// the caller will throw away. PUL-216. The "edited" arm has no
+	// emitter — REST /events strips the `changes` block needed to
+	// detect title edits, and the inbound webhook adapter that used
+	// to populate it was removed in PUL-166 PR5. PUL-185 / PUL-218.
 	if p.Action != "merged" {
 		return nil, ErrSkip
 	}
