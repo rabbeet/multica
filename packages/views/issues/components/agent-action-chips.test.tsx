@@ -102,14 +102,14 @@ describe("AgentQuestionChips", () => {
     expect(defaultBtn.textContent).toContain("default");
   });
 
-  it("calls useCreateComment with the tapped variant + parent_id", async () => {
+  it("calls useCreateComment with the marker-prefixed variant + parent_id (PUL-240)", async () => {
     const { getByLabelText } = renderWithProviders(
       <AgentQuestionChips {...baseProps} />,
     );
     fireEvent.click(getByLabelText("Select rbtd_bg"));
     await waitFor(() => {
       expect(createCommentMock).toHaveBeenCalledWith({
-        content: "rbtd_bg",
+        content: '<div data-pul240-answer="parent-comment-id:1"></div>\nrbtd_bg',
         parentId: "parent-comment-id",
         type: "comment",
       });
@@ -185,8 +185,10 @@ describe("AgentQuestionChips", () => {
     await user.type(input, "своя реплика");
     fireEvent.click(getByText("Send"));
     await waitFor(() => {
+      // PUL-240 — content is marker-prefixed so the TLDR header can
+      // count this reply as answering specifically q1.
       expect(createCommentMock).toHaveBeenCalledWith({
-        content: "своя реплика",
+        content: '<div data-pul240-answer="parent-comment-id:1"></div>\nсвоя реплика',
         parentId: "parent-comment-id",
         type: "comment",
       });

@@ -14,6 +14,7 @@ import {
 import { useLastVisitSync } from "../../inbox/hooks/use-last-visit-sync";
 import { Button } from "@multica/ui/components/ui/button";
 import { extractAgentActions } from "../../editor/utils/preprocess-agent-actions";
+import { collectAnsweredQuestionIds } from "../../editor/utils/answer-markers";
 import { useT } from "../../i18n";
 import { useTimeAgo } from "../../common/hooks/use-time-ago";
 import type { TimelineEntry } from "@multica/core/types";
@@ -62,6 +63,9 @@ export function IssueTldrHeader({
   );
 
   // Compute open agent actions across all visible timeline entries.
+  // PUL-240 — replaces the prior crude "any child reply ⇒ all
+  // answered" rule with per-question matching against the hidden
+  // marker each chip-tap reply embeds (see editor/utils/answer-markers.ts).
   // Per-comment memoization happens inside extractAgentActions's call
   // sites elsewhere; here we accept the recompute on data change since
   // the timeline isn't expected to mutate during a single page visit.
@@ -72,25 +76,24 @@ export function IssueTldrHeader({
         for (const entry of page.entries) all.push(entry);
       }
     }
-    // Filter to agent-authored comments only and parse their content.
-    // An agent question is "open" when no child-comment whose parent_id
-    // matches it exists in the same timeline — i.e. the user hasn't
-    // replied yet. parent_id chain is already in the timeline payload.
-    const childIdsByParent = new Map<string, true>();
-    for (const e of all) {
-      if (e.parent_id) childIdsByParent.set(e.parent_id, true);
-    }
+    // Set of question ids that have a matching `<div data-pul240-answer="…">`
+    // marker among the child replies — these are the chip-tap answered
+    // questions. Command-block ack-sends use the same machinery, so an
+    // ack-sent run counts as "answered" too.
+    const answeredQuestionIds = collectAnsweredQuestionIds(
+      all.map((e) => ({ content: e.content ?? null })),
+    );
     const openByComment: { commentId: string; openCount: number }[] = [];
     for (const e of all) {
       if (e.type !== "comment" || e.actor_type !== "agent") continue;
       const actions = extractAgentActions(e.content ?? "", e.id);
-      // Crude rule: if the parent comment has any child reply, treat all
-      // questions on it as answered. Finer-grained (per-question id
-      // matching) lands in a follow-up — right now the chip's success
-      // state already shows per-question, this is just the count badge.
-      const totalActions = actions.questions.length + actions.commands.length;
-      const isAnswered = childIdsByParent.has(e.id);
-      const openCount = isAnswered ? 0 : totalActions;
+      let openCount = 0;
+      for (const q of actions.questions) {
+        if (!answeredQuestionIds.has(q.id)) openCount++;
+      }
+      for (const c of actions.commands) {
+        if (!answeredQuestionIds.has(c.id)) openCount++;
+      }
       if (openCount > 0) openByComment.push({ commentId: e.id, openCount });
     }
     return openByComment;

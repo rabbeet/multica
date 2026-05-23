@@ -218,6 +218,9 @@ const sanitizeSchema = {
       "dataCommandOrdinal",
       "dataCommands",
       "dataGroupLabel",
+      // PUL-240 hidden marker on chip-tap replies — drives per-question
+      // answered detection in the TLDR header + Mission Control badge.
+      "dataPul240Answer",
     ],
     code: [
       ...(defaultSchema.attributes?.code ?? []),
