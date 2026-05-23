@@ -318,6 +318,16 @@
     "done_at": "已完成 {{time}}",
     "in_progress_started": "进行中，开始于 {{time}}"
   },
+  "tldr_header": {
+    "title": "进度概览",
+    "open_questions": "等你回答 — {{count}} 个待解决问题",
+    "open_questions_jump": "跳到问题",
+    "skill_done": "✓ {{skill}}",
+    "skill_in_progress": "⏳ {{skill}}",
+    "last_visit": "上次访问：{{relative}}",
+    "last_visit_unknown": "上次访问：未知",
+    "toggle_collapse": "切换 TL;DR 区域"
+  },
   "agent_action": {
     "default_suffix": "默认",
     "custom_answer": "自定义回答…",
