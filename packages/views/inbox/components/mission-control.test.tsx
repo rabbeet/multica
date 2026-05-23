@@ -48,6 +48,15 @@ vi.mock("@multica/core/issues/mutations", () => ({
   }),
 }));
 
+// PUL-238 — use-action-inbox now subscribes to WS events. Tests don't
+// run real WebSocket plumbing, so stub the realtime hooks as no-ops.
+// The cache-invalidation paths they wire are exercised in
+// use-action-inbox.test.ts directly.
+vi.mock("@multica/core/realtime", () => ({
+  useWSEvent: () => {},
+  useWSReconnect: () => {},
+}));
+
 function buildPayload(overrides?: Partial<ListActionInboxResponse>): ListActionInboxResponse {
   return {
     items: [

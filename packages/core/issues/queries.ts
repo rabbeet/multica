@@ -139,11 +139,15 @@ export function issueSkillStatesOptions(issueId: string) {
  * latest agent comment + skill state — the client parses the comment
  * body via extractAgentActions() to render chip rows inline, no N+1.
  *
- * PR2 ships without a WS subscription on this query; we refetch every
- * 15s instead. The cadence is short enough that "new agent question
- * arrives, user sees it on the next tick" feels live without the
- * complexity budget of a per-row WS subscriber. PR2.5 will swap the
- * interval for `useWSEvent('comment:created')` invalidation.
+ * PR2 launched with a 15s `refetchInterval` and no WS subscription.
+ * PUL-238 (PR2.5) replaced the interval with event-driven invalidation
+ * inside `use-action-inbox.ts` — that hook subscribes to
+ * `comment:created` / `comment:updated` / `comment:deleted` /
+ * `issue:updated`, debounces 200ms, and invalidates this query. So
+ * here we keep the `refetchOnWindowFocus` safety net (a user coming
+ * back from another tab gets a fresh fetch on focus) but drop the
+ * unconditional interval — when nothing is happening on the workspace,
+ * the inbox doesn't poll at all.
  */
 export const actionInboxKey = (wsId: string) =>
   ["action-inbox", wsId] as const;
@@ -152,7 +156,6 @@ export function actionInboxOptions(wsId: string) {
   return queryOptions({
     queryKey: actionInboxKey(wsId),
     queryFn: () => api.listActionInbox(wsId),
-    refetchInterval: 15_000,
     refetchOnWindowFocus: "always" as const,
   });
 }
