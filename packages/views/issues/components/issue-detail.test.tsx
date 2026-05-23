@@ -266,6 +266,28 @@ vi.mock("@multica/core/issues/stores", () => ({
     };
     return selector ? selector(state) : state;
   },
+  // PUL-231 PR3 — IssueTldrHeader subscribes to these. They need to be
+  // present on the mock or the component throws at first hook call. The
+  // header's visibility itself is exercised in issue-tldr-header.test.tsx;
+  // here we just keep the existing IssueDetail snapshot suite stable.
+  useLastVisitStore: Object.assign(
+    (selector?: any) => {
+      const state = { visits: {}, mark: () => {}, get: () => null };
+      return selector ? selector(state) : state;
+    },
+    { getState: () => ({ visits: {}, mark: () => {}, get: () => null }) },
+  ),
+  useTldrCollapseStore: Object.assign(
+    (selector?: any) => {
+      const state = {
+        collapsedIssues: [],
+        isCollapsed: () => false,
+        toggle: () => {},
+      };
+      return selector ? selector(state) : state;
+    },
+    { getState: () => ({ collapsedIssues: [], isCollapsed: () => false, toggle: () => {} }) },
+  ),
 }));
 
 // Mock modals

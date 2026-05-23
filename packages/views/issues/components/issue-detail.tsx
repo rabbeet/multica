@@ -46,6 +46,7 @@ import { CommentCard } from "./comment-card";
 import { CommentInput, type CommentInputRef } from "./comment-input";
 import { PopularSkillsBar } from "./popular-skills-bar";
 import { SkillHistory } from "./skill-history";
+import { IssueTldrHeader } from "./issue-tldr-header";
 import { insertSkillAndRecord } from "../../editor/extensions/skill-recency";
 import { AgentLiveCard } from "./agent-live-card";
 import { ExecutionLogSection } from "./execution-log-section";
@@ -987,6 +988,12 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 </Popover>
               </div>
             </div>
+
+            {/* PUL-231 PR3 TL;DR header — "where we are" panel mounted
+                above SkillHistory, per /plan-design-review A=c. Auto-
+                suppresses when there's nothing useful to show, so
+                fresh issues stay clean. */}
+            <IssueTldrHeader workspaceId={wsId} issueId={id} />
 
             {/* PUL-177 SkillHistory — full per-(issue, skill) state
                 matrix. Sits at the top of the activity section so a

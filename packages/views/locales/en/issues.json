@@ -325,6 +325,16 @@
     "done_at": "done {{time}}",
     "in_progress_started": "in progress, started {{time}}"
   },
+  "tldr_header": {
+    "title": "Where we are",
+    "open_questions": "Waiting on your answer — {{count}} open question(s)",
+    "open_questions_jump": "Jump to questions",
+    "skill_done": "✓ {{skill}}",
+    "skill_in_progress": "⏳ {{skill}}",
+    "last_visit": "Last visit: {{relative}}",
+    "last_visit_unknown": "Last visit: unknown",
+    "toggle_collapse": "Toggle TL;DR section"
+  },
   "agent_action": {
     "default_suffix": "default",
     "custom_answer": "custom answer…",
