@@ -12,8 +12,10 @@ name: Claude Review Fix
 #   - HUSKY env removed (multica has no husky pre-commit hooks).
 #   - Prompt Step 4 (Validate): `php artisan test --compact` → `cd server &&
 #     go test ./...`; `vendor/bin/pint --dirty` → `gofmt -w server/`;
-#     `npx prettier --write` → `pnpm prettier --write`; `npx tsc --noEmit` +
-#     `npx svelte-check` → `pnpm turbo typecheck lint`.
+#     `npx tsc --noEmit` + `npx svelte-check` → `pnpm turbo typecheck lint`.
+#     (`npx prettier --write` from Pulse has NO multica equivalent — multica
+#     does not use prettier; ESLint via `pnpm turbo lint` is the only auto
+#     JS/TS tool.)
 #   - claude_args allowedTools: `php`/`vendor/bin/pint`/`npx`/`npm run` →
 #     `go`/`gofmt`/`pnpm`.
 # Single source of truth lives at PUL-236 (reusable-workflow refactor) when it
@@ -181,9 +183,13 @@ jobs:
 
             If any JS/TS files were changed, also run:
             ```bash
-            pnpm prettier --write <changed files>
             pnpm turbo typecheck lint --filter='!@multica/docs'
             ```
+
+            Note: multica does NOT use prettier (verified 2026-05-23 — no
+            prettier dependency anywhere in the monorepo). ESLint via
+            `pnpm turbo lint` is the only auto-formatting / lint tool for
+            JS/TS. For Go, `gofmt` is the format authority.
 
             ## Step 5: Commit and push
 

@@ -118,7 +118,7 @@ jobs:
             - Severity: [critical], [warning], or [nit]
             - Be constructive — suggest fixes, not just problems
             - If the PR looks good, say so briefly. Do not invent issues.
-            - Do NOT comment on formatting/style — gofmt and prettier handle that
+            - Do NOT comment on formatting/style — gofmt (Go) and ESLint via `pnpm turbo lint` (JS/TS) handle that. multica does not use prettier.
             - Do NOT comment on sqlc-generated code patterns — that is generated, edit the .sql file or sqlc.yaml
 
             ## Step 4: Post structured verdict
