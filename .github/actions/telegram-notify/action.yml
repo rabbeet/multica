@@ -1,0 +1,36 @@
+name: 'Telegram notify'
+description: 'Send a Telegram alert via sendMessage API with parse_mode=HTML'
+
+# Ported from rabbeet/Pulse @ 74cf64d5 (PUL-235, 2026-05-23) as part of the
+# Approach C lift-and-shift. The reusable-workflow refactor (PUL-236 follow-up)
+# will host this composite once at rabbeet/Pulse and reference it cross-repo via
+# `uses: rabbeet/Pulse/.github/actions/telegram-notify@v1`. Until then this is
+# a duplicate of Pulse's copy — keep in sync by hand if Pulse changes it before
+# PUL-236 ships.
+
+inputs:
+  bot_token:
+    description: 'Telegram bot token (typically secrets.TELEGRAM_BOT_TOKEN)'
+    required: true
+  chat_id:
+    description: 'Telegram chat ID (typically secrets.TELEGRAM_CHAT_ID)'
+    required: true
+  text:
+    description: 'Message body, HTML-formatted. Supports newlines.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Send Telegram message
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.bot_token }}
+        CHAT: ${{ inputs.chat_id }}
+        TEXT: ${{ inputs.text }}
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+          -d chat_id="${CHAT}" \
+          -d parse_mode=HTML \
+          --data-urlencode "text=${TEXT}" \
+          > /dev/null
