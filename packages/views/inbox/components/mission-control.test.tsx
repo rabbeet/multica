@@ -6,6 +6,7 @@ import { createInstance } from "i18next";
 import { MissionControl } from "./mission-control";
 import { actionInboxKey } from "@multica/core/issues/queries";
 import { useDensityStore } from "@multica/core/issues/stores";
+import { _resetLastVisitSyncForTests } from "../hooks/use-last-visit-sync";
 import { NavigationProvider } from "../../navigation";
 import { RESOURCES } from "../../locales";
 import type { ListActionInboxResponse } from "@multica/core/types";
@@ -55,6 +56,17 @@ vi.mock("@multica/core/issues/mutations", () => ({
 vi.mock("@multica/core/realtime", () => ({
   useWSEvent: () => {},
   useWSReconnect: () => {},
+}));
+
+// PUL-239 — Mission Control rows hydrate the last-visit map from
+// /api/last-visits and POST to /api/issues/:id/last-visit. The hook
+// itself is covered in use-last-visit-sync.test.tsx; here we just stub
+// api so the Mission Control snapshot suite stays focused on layout.
+vi.mock("@multica/core/api", () => ({
+  api: {
+    listLastVisits: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    markIssueVisited: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 function buildPayload(overrides?: Partial<ListActionInboxResponse>): ListActionInboxResponse {
@@ -131,6 +143,7 @@ function renderMissionControl(payload: ListActionInboxResponse | null) {
 beforeEach(() => {
   // Density store is persisted; reset between tests so snapshots are stable.
   useDensityStore.setState({ density: "compact" });
+  _resetLastVisitSyncForTests();
 });
 
 describe("MissionControl", () => {

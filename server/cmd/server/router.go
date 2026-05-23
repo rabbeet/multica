@@ -373,6 +373,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// renders chip rows over the same payload.
 			r.Get("/api/action-inbox", h.ListWorkspaceActionInbox)
 
+			// PUL-239 cross-device last-visit map for Mission Control
+			// delta-mode. Returns the whole map for the current actor
+			// in this workspace; Mission Control hydrates the local
+			// zustand store from it on mount. Per-issue mark lives on
+			// the issue routes block below.
+			r.Get("/api/last-visits", h.ListLastVisits)
+
 			// Issues
 			r.Route("/api/issues", func(r chi.Router) {
 				r.Get("/search", h.SearchIssues)
@@ -397,6 +404,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/subscribers", h.ListIssueSubscribers)
 					r.Post("/subscribe", h.SubscribeToIssue)
 					r.Post("/unsubscribe", h.UnsubscribeFromIssue)
+					// PUL-239 cross-device last-visit mark — idempotent
+					// upsert of (workspace, current actor, issue) → now().
+					r.Post("/last-visit", h.MarkIssueVisited)
 					r.Get("/active-task", h.GetActiveTaskForIssue)
 					r.Post("/tasks/{taskId}/cancel", h.CancelTask)
 					r.Post("/rerun", h.RerunIssue)

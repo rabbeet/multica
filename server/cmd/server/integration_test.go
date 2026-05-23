@@ -626,6 +626,75 @@ func TestActionInboxFeed(t *testing.T) {
 	}
 }
 
+// ---- Last visit (PUL-239) ----
+
+// TestLastVisitRoundTrip verifies the cross-device last-visit endpoint
+// pair: marking an issue visited adds a row to the per-(workspace,
+// user) map returned by the list endpoint, and a second mark on the
+// same issue upserts (no duplicate row). Mission Control's hydrate-on-
+// mount flow depends on both halves.
+func TestLastVisitRoundTrip(t *testing.T) {
+	resp := authRequest(t, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Last visit integration",
+	})
+	var created map[string]any
+	readJSON(t, resp, &created)
+	issueID := created["id"].(string)
+	defer func() {
+		_ = authRequest(t, "DELETE", "/api/issues/"+issueID, nil)
+	}()
+
+	// Map starts without this issue (we just created it; never visited).
+	resp = authRequest(t, "GET", "/api/last-visits?workspace_id="+testWorkspaceID, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("ListLastVisits empty: expected 200, got %d", resp.StatusCode)
+	}
+	var emptyResp map[string]any
+	readJSON(t, resp, &emptyResp)
+	for _, it := range emptyResp["items"].([]any) {
+		row := it.(map[string]any)
+		if row["issue_id"] == issueID {
+			t.Fatalf("issue %s should not be in last-visit map before any mark", issueID)
+		}
+	}
+
+	// Mark visited → 204.
+	resp = authRequest(t, "POST", "/api/issues/"+issueID+"/last-visit?workspace_id="+testWorkspaceID, nil)
+	resp.Body.Close()
+	if resp.StatusCode != 204 {
+		t.Fatalf("MarkIssueVisited: expected 204, got %d", resp.StatusCode)
+	}
+
+	countIssue := func(items []any) int {
+		n := 0
+		for _, it := range items {
+			row := it.(map[string]any)
+			if row["issue_id"] == issueID {
+				n++
+			}
+		}
+		return n
+	}
+
+	// Map now contains the issue exactly once.
+	resp = authRequest(t, "GET", "/api/last-visits?workspace_id="+testWorkspaceID, nil)
+	var afterMark map[string]any
+	readJSON(t, resp, &afterMark)
+	if got := countIssue(afterMark["items"].([]any)); got != 1 {
+		t.Fatalf("expected exactly 1 last-visit row for %s, got %d", issueID, got)
+	}
+
+	// Second mark must upsert, not duplicate.
+	resp = authRequest(t, "POST", "/api/issues/"+issueID+"/last-visit?workspace_id="+testWorkspaceID, nil)
+	resp.Body.Close()
+	resp = authRequest(t, "GET", "/api/last-visits?workspace_id="+testWorkspaceID, nil)
+	var afterSecond map[string]any
+	readJSON(t, resp, &afterSecond)
+	if got := countIssue(afterSecond["items"].([]any)); got != 1 {
+		t.Fatalf("second mark should upsert, got %d rows for %s", got, issueID)
+	}
+}
+
 // ---- Comments through full router ----
 
 func TestCommentsThroughRouter(t *testing.T) {
