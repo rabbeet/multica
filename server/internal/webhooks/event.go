@@ -34,7 +34,7 @@ import (
 // same string verbatim, so a typo here would surface as a CHECK violation
 // at insert time, which is exactly the safety net we want.
 //
-// Post-PUL-212 status:
+// Post-PUL-212 / PUL-218 status:
 //   - EventTypePRMerged is the only event type any current Source adapter
 //     actively emits. ApplyDeployFlip (PUL-194) and the cascade-gate
 //     spawn path (PUL-198 Part 2) both fire on this value.
@@ -46,11 +46,13 @@ import (
 //     rabbeet/Pulse owns CI / review-comment fixes — PUL-209). A
 //     follow-up PR in 1-2 months will drop both constants and the
 //     CHECK arm together once the audit window is clear.
-//   - EventTypePRTitleEdit has been source-less since PUL-166 PR5
-//     removed the inbound webhook adapter and PUL-185 confirmed REST
-//     /events strips the `changes` block needed to detect title edits
-//     on the poll path. Kept for the same CHECK-constraint reason as
-//     the two above; same removal plan.
+//   - EventTypePRTitleEdit was source-less since PUL-166 PR5 removed
+//     the inbound webhook adapter; PUL-218 dropped the Go constant.
+//     The 'pr_title_edit' arm is intentionally kept in the CHECK
+//     constraint because worker_test.go uses it as a non-pr_merged
+//     event_type fixture (TestWorker_NonPRMergedEventDoesNotFlip et
+//     al.). The CHECK arm will go with the combo PR that drops the
+//     two Deprecated constants above.
 const (
 	// Deprecated: no Source adapter emits this since PUL-212.
 	// Autofix-pipeline in rabbeet/Pulse (PUL-209 pr-test-autofix.yml)
@@ -67,14 +69,6 @@ const (
 	// owns review-comment fixes. Constant remains for legacy-row
 	// CHECK compatibility; see EventTypeCIFailure note above.
 	EventTypePRReviewChange = "pr_review_change"
-
-	// Deprecated: no Source adapter has emitted this since PUL-166
-	// PR5 removed the inbound webhook adapter (the only source that
-	// could observe `changes.title`) and PUL-185 confirmed the poll
-	// path is structurally blind (REST /events strips `changes`).
-	// Constant remains for legacy-row CHECK compatibility; same
-	// removal plan as the two Deprecated constants above.
-	EventTypePRTitleEdit = "pr_title_edit"
 )
 
 // TriggerEvent is the source-agnostic shape that every Source adapter must
@@ -87,6 +81,7 @@ const (
 // to resolve "which issue does this PR belong to":
 //   - Primary lookup: parse [PUL-N] regex out of PRTitle.
 //   - Fallback (G4): branch name `agent-N/pul-N-…`.
+//
 // Both fields are required so the worker can fall back without re-hitting
 // GitHub on a title-edit event.
 type TriggerEvent struct {

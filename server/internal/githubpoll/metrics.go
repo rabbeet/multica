@@ -27,11 +27,10 @@ type Metrics struct {
 	callsTotal sync.Map // map[string]*atomic.Int64
 
 	// EventsTotal keyed by "{repo}|{event_type}" where event_type
-	// is "ci_failure", "pr_merged", "pr_review_change",
-	// "pr_title_edit", "skip", or "schema_mismatch". The "skip"
-	// bucket bundles ErrSkip (success conclusion, non-merge close,
-	// approval review, push, etc.) so the alert path has one
-	// distinct bucket per real event-type.
+	// is "ci_failure", "pr_merged", "pr_review_change", "skip", or
+	// "schema_mismatch". The "skip" bucket bundles ErrSkip (success
+	// conclusion, non-merge close, approval review, push, etc.) so
+	// the alert path has one distinct bucket per real event-type.
 	eventsTotal sync.Map // map[string]*atomic.Int64
 
 	// SinkErrorsTotal keyed by repo. Each entry is a count of Sink
@@ -83,8 +82,8 @@ func (m *Metrics) IncCall(repo string, statusCode int) {
 
 // IncEvent increments the per-(repo, event_type) event counter.
 // eventType is one of the webhook constants (ci_failure, pr_merged,
-// pr_review_change, pr_title_edit) for classified events, or
-// "skip" / "schema_mismatch" for the negative paths.
+// pr_review_change) for classified events, or "skip" /
+// "schema_mismatch" for the negative paths.
 func (m *Metrics) IncEvent(repo, eventType string) {
 	if m == nil {
 		return
