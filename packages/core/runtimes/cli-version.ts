@@ -48,12 +48,18 @@ function lessThan(a: [number, number, number], b: [number, number, number]) {
  * Check a daemon-reported CLI version string against the minimum. Returns
  * `"missing"` for empty/unparsable input (fail closed — same policy as the
  * server) and `"too_old"` for a parsable version below the threshold.
- * Dev-built daemons (git-describe shape) are always OK — the version string
- * itself is the shared signal, so frontend and server agree by construction.
+ * Dev-built daemons (git-describe shape, OR the bare `dev` default from
+ * server/cmd/multica/main.go:14) are always OK — the version string itself
+ * is the shared signal, so frontend and server agree by construction. Bare
+ * `dev` covers `go build` / `go install` / `go run`; released binaries
+ * cannot report it (goreleaser and Dockerfile both inject `-X main.version=…`).
  */
 export function checkQuickCreateCliVersion(detected: string | undefined | null): CliVersionCheck {
   const current = (detected ?? "").trim();
-  if (DEV_DESCRIBE_RE.test(current)) {
+  // Case-sensitive exact "dev": matches the lowercase literal default in
+  // cmd/multica/main.go. A tripwire test in server/cmd/multica/main_test.go
+  // fails if the default ever drifts.
+  if (current === "dev" || DEV_DESCRIBE_RE.test(current)) {
     return { state: "ok", current, min: MIN_QUICK_CREATE_CLI_VERSION };
   }
   const parsed = current ? parseSemver(current) : null;

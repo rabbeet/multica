@@ -22,4 +22,13 @@ describe("checkQuickCreateCliVersion", () => {
     expect(checkQuickCreateCliVersion("v0.2.15-235-gdaf0e935-dirty").state).toBe("ok");
     expect(checkQuickCreateCliVersion("0.1.0-1-gabc1234").state).toBe("ok");
   });
+
+  it('treats bare "dev" CLI version as ok (go build / go install / go run)', () => {
+    expect(checkQuickCreateCliVersion("dev").state).toBe("ok");
+    expect(checkQuickCreateCliVersion("  dev  ").state).toBe("ok");
+  });
+
+  it('rejects uppercase "DEV" — locks case-sensitivity of the dev exemption', () => {
+    expect(checkQuickCreateCliVersion("DEV").state).toBe("missing");
+  });
 });
