@@ -40,6 +40,7 @@ import {
 } from "@multica/core/issues/stores";
 import { api } from "@multica/core/api";
 import { useAuthorContext } from "../../editor/context/author-context";
+import { formatAnsweredContent } from "../../editor/utils/answer-markers";
 import { useT } from "../../i18n";
 
 /**
@@ -200,14 +201,20 @@ export function AgentQuestionChips({
     (variant: string) => {
       if (!canMutate || !commentId || !issueId) return;
       if (state.kind === "pending") return; // belt-and-braces against rapid taps
+      // PUL-240 — prefix the reply content with a hidden answer marker
+      // so the TL;DR header + Mission Control row badge can compute
+      // per-question open-counts precisely. Question id = parent
+      // comment id + the detected question's ordinal.
+      const questionId = `${commentId}:${ordinal}`;
+      const content = formatAnsweredContent(questionId, variant);
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        enqueueOffline({ issueId, content: variant, parentId: commentId });
+        enqueueOffline({ issueId, content, parentId: commentId });
         setState({ kind: "offline", variant });
         return;
       }
       setState({ kind: "pending", variant });
       createComment.mutate(
-        { content: variant, parentId: commentId, type: "comment" },
+        { content, parentId: commentId, type: "comment" },
         {
           onSuccess: () => setState({ kind: "success", variant }),
           onError: () => {
@@ -217,7 +224,7 @@ export function AgentQuestionChips({
         },
       );
     },
-    [canMutate, commentId, issueId, createComment, enqueueOffline, t, state.kind],
+    [canMutate, commentId, issueId, ordinal, createComment, enqueueOffline, t, state.kind],
   );
 
   // Success state: collapsed to a single inline badge.

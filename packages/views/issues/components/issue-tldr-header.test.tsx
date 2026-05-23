@@ -108,19 +108,55 @@ describe("IssueTldrHeader", () => {
     expect(getByText(/Jump to questions/i)).toBeTruthy();
   });
 
-  it("treats a question as answered when a child reply exists in the timeline", () => {
-    const md = "1. **URL name**: default `rbtd_bg_sym`. Альтернативы: rbtd_bg / rbtd_anchor";
-    const { queryByText, container } = renderHeader({
+  it("PUL-240 — counts as open only the questions WITHOUT a matching answer marker", () => {
+    // Agent posts 2 questions; user only answered q1. The header should
+    // surface "1 open question", not 0 (PUL-240 fixes the prior crude
+    // rule that treated any child reply as answering all questions).
+    const md = [
+      "Two questions to confirm.",
+      "",
+      "1. **URL name**: default `rbtd_bg_sym`. Альтернативы: rbtd_bg / rbtd_anchor",
+      "",
+      "2. **Atomic swap**: default `нет`. Альтернативы: да",
+    ].join("\n");
+    const { getByText, container } = renderHeader({
       skills: [],
       timeline: [
         agentComment("c-1", md),
-        // The user replied; question collapses to "answered" and the
-        // TLDR header drops the open-question line entirely (totalOpen=0).
-        { ...agentComment("c-reply", "rbtd_bg", "c-1"), actor_type: "member", actor_id: "m-1" },
+        // Marker for q1 (ordinal=1) only — q2 still open.
+        {
+          ...agentComment(
+            "c-reply",
+            '<div data-pul240-answer="c-1:1"></div>\nrbtd_bg',
+            "c-1",
+          ),
+          actor_type: "member",
+          actor_id: "m-1",
+        },
       ],
     });
-    expect(queryByText(/open question/i)).toBeNull();
-    // Header still suppresses entirely because skills=[] and openTotal=0.
+    expect(getByText(/1 open question/i)).toBeTruthy();
+    expect(container.querySelector("[data-testid='issue-tldr-header']")).not.toBeNull();
+  });
+
+  it("PUL-240 — header auto-suppresses when ALL questions on a parent are answered", () => {
+    const md = "1. **URL name**: default `rbtd_bg_sym`. Альтернативы: rbtd_bg / rbtd_anchor";
+    const { container } = renderHeader({
+      skills: [],
+      timeline: [
+        agentComment("c-1", md),
+        {
+          ...agentComment(
+            "c-reply",
+            '<div data-pul240-answer="c-1:1"></div>\nrbtd_bg',
+            "c-1",
+          ),
+          actor_type: "member",
+          actor_id: "m-1",
+        },
+      ],
+    });
+    // openTotal=0 AND skills=[] → header returns null.
     expect(container.querySelector("[data-testid='issue-tldr-header']")).toBeNull();
   });
 
