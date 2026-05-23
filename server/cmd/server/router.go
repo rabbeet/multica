@@ -367,6 +367,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// first so manual testers can hit /api/cascades via curl.
 			r.Get("/api/cascades", h.ListCascades)
 
+			// PUL-231 Mission Control workspace inbox — single SQL
+			// query returns up to 100 active issues with their latest
+			// agent comment + skill state pre-joined. The client
+			// renders chip rows over the same payload.
+			r.Get("/api/action-inbox", h.ListWorkspaceActionInbox)
+
 			// Issues
 			r.Route("/api/issues", func(r chi.Router) {
 				r.Get("/search", h.SearchIssues)

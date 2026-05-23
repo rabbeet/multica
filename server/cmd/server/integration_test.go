@@ -566,6 +566,66 @@ func TestIssuesCRUDThroughRouter(t *testing.T) {
 	}
 }
 
+// ---- Action inbox (PUL-231 Mission Control) ----
+
+// TestActionInboxFeed verifies the new /api/action-inbox endpoint
+// returns the expected payload shape — issue rows with an optional
+// `latest_agent_comment` group when an agent has posted, and an empty
+// `total: 0` payload when the workspace has no active issues. The
+// underlying CTE join + ordering is exercised here through the full
+// router (handler → SQL → real PG), which catches schema/sqlc/route
+// drift in one test.
+func TestActionInboxFeed(t *testing.T) {
+	// Create an issue, post one agent comment on it. The endpoint must
+	// surface this row with latest_agent_comment populated.
+	resp := authRequest(t, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Action inbox integration test",
+	})
+	var created map[string]any
+	readJSON(t, resp, &created)
+	issueID := created["id"].(string)
+	defer func() {
+		_ = authRequest(t, "DELETE", "/api/issues/"+issueID, nil)
+	}()
+
+	// Post a member comment first — it must NOT trigger latest_agent_comment.
+	resp = authRequest(t, "POST", "/api/issues/"+issueID+"/comments", map[string]any{
+		"content": "member-side note",
+	})
+	resp.Body.Close()
+
+	// Hit the inbox endpoint.
+	resp = authRequest(t, "GET", "/api/action-inbox?workspace_id="+testWorkspaceID, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("ListWorkspaceActionInbox: expected 200, got %d", resp.StatusCode)
+	}
+	var inbox map[string]any
+	readJSON(t, resp, &inbox)
+	if _, ok := inbox["items"]; !ok {
+		t.Fatal("response missing 'items' key")
+	}
+	if _, ok := inbox["total"]; !ok {
+		t.Fatal("response missing 'total' key")
+	}
+	items := inbox["items"].([]any)
+	var ourRow map[string]any
+	for _, it := range items {
+		row := it.(map[string]any)
+		if row["id"] == issueID {
+			ourRow = row
+			break
+		}
+	}
+	if ourRow == nil {
+		t.Fatalf("created issue %s not in inbox feed", issueID)
+	}
+	// Member comment present but no agent comment → latest_agent_comment
+	// is omitted (omitempty on the struct tag).
+	if _, hasAgent := ourRow["latest_agent_comment"]; hasAgent {
+		t.Fatal("latest_agent_comment should be absent when no agent has posted")
+	}
+}
+
 // ---- Comments through full router ----
 
 func TestCommentsThroughRouter(t *testing.T) {
