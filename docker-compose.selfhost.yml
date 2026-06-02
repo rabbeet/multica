@@ -41,6 +41,21 @@ services:
       - --chromium-disable-javascript=true
       - --api-timeout=30s
     restart: unless-stopped
+    # PUL-266 hardening: Chromium tabs can be RAM-hungry and a runaway
+    # render shouldn't be able to evict the postgres or backend
+    # container. cap_drop+no-new-privileges harden the container
+    # without breaking Chromium (which manages its own sandbox).
+    # NOTE: pin `image:` to a digest (sha256:...) in a follow-up to
+    # eliminate the floating-tag supply-chain risk; tag is kept as 8
+    # until the deploy owner picks the digest.
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   backend:
     image: ${MULTICA_BACKEND_IMAGE:-ghcr.io/multica-ai/multica-backend}:${MULTICA_IMAGE_TAG:-latest}
