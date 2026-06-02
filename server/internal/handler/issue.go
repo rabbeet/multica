@@ -1122,11 +1122,6 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		assigneeID = id
 	}
 
-	if status, msg := h.validateAssigneePair(r.Context(), r, workspaceID, assigneeType, assigneeID); status != 0 {
-		writeError(w, status, msg)
-		return
-	}
-
 	var parentIssueID pgtype.UUID
 	var projectID pgtype.UUID
 	if req.ProjectID != nil {
@@ -1154,6 +1149,26 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		if req.ProjectID == nil {
 			projectID = parent.ProjectID
 		}
+	}
+
+	// PUL-260: project-level default assignee. When the caller omits the
+	// assignee fields and the resolved project has defaults configured,
+	// adopt them so the rest of the handler (validation, insert, and the
+	// auto-enqueue path at the bottom) sees a fully-formed assignee.
+	if req.AssigneeType == nil && req.AssigneeID == nil && projectID.Valid {
+		project, err := h.Queries.GetProjectInWorkspace(r.Context(), db.GetProjectInWorkspaceParams{
+			ID:          projectID,
+			WorkspaceID: wsUUID,
+		})
+		if err == nil && project.DefaultAssigneeType.Valid && project.DefaultAssigneeID.Valid {
+			assigneeType = project.DefaultAssigneeType
+			assigneeID = project.DefaultAssigneeID
+		}
+	}
+
+	if status, msg := h.validateAssigneePair(r.Context(), r, workspaceID, assigneeType, assigneeID); status != 0 {
+		writeError(w, status, msg)
+		return
 	}
 
 	attachmentIDs, ok := parseUUIDSliceOrBadRequest(w, req.AttachmentIDs, "attachment_ids")
