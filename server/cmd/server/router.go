@@ -401,6 +401,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/comments", h.CreateComment)
 					r.Get("/comments", h.ListComments)
 					r.Get("/timeline", h.ListTimeline)
+					// PUL-266 dev preview for the in-flight PDF
+					// export pipeline. Production-safe via the
+					// MULTICA_DEV=1 env gate inside the handler —
+					// returns 404 when unset. PR-2 swaps this for
+					// /export.pdf and drops the env gate.
+					r.Get("/export.html", h.ExportIssueHTMLDev)
 					r.Get("/subscribers", h.ListIssueSubscribers)
 					r.Post("/subscribe", h.SubscribeToIssue)
 					r.Post("/unsubscribe", h.UnsubscribeFromIssue)
