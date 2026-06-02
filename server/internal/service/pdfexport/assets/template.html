@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ .Header.Identifier }} — {{ .Header.Title }}</title>
+<style>
+/*
+ * pdfexport stylesheet (PUL-266).
+ *
+ * PR-1 ships intentionally minimal CSS: system fonts, sensible spacing,
+ * enough structure to validate the timeline layout in a browser at the
+ * hidden /export.html?_dev=1 route. PR-2 replaces the font stack with
+ * embedded Noto Sans / Mono / Color Emoji as @font-face base64 so the
+ * PDF renders identically on every viewer and the kyrillic + emoji
+ * shapes don't depend on what the OS happens to have installed.
+ */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 11pt;
+  line-height: 1.45;
+  color: #1f2328;
+}
+body { padding: 24pt; max-width: 720pt; margin: 0 auto; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.25; }
+
+/* ---------- Ticket header ---------- */
+.ticket-header {
+  border-bottom: 1pt solid #d0d7de;
+  padding-bottom: 12pt;
+  margin-bottom: 20pt;
+}
+.ticket-header .identifier {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9pt;
+  color: #57606a;
+  letter-spacing: 0.04em;
+}
+.ticket-header h1 {
+  font-size: 17pt;
+  margin: 4pt 0 8pt 0;
+}
+.ticket-header .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6pt 16pt;
+  font-size: 9pt;
+  color: #57606a;
+}
+.ticket-header .meta dt { display: inline; font-weight: 600; color: #1f2328; }
+.ticket-header .meta dd { display: inline; margin: 0; }
+
+/* ---------- Issue description ---------- */
+.issue-description {
+  padding: 8pt 12pt;
+  margin: 0 0 20pt 0;
+  background: #f6f8fa;
+  border-radius: 4pt;
+}
+
+/* ---------- Timeline ---------- */
+.timeline { display: flex; flex-direction: column; gap: 14pt; }
+
+.activity-row {
+  font-size: 9pt;
+  color: #57606a;
+  border-left: 2pt solid #d0d7de;
+  padding-left: 10pt;
+}
+.activity-row .activity-action { color: #1f2328; }
+
+.comment-block {
+  border: 1pt solid #d0d7de;
+  border-radius: 4pt;
+  page-break-inside: avoid;
+}
+.comment-block .comment-header {
+  background: #f6f8fa;
+  padding: 6pt 10pt;
+  border-bottom: 1pt solid #d0d7de;
+  font-size: 9pt;
+  color: #57606a;
+  display: flex;
+  gap: 8pt;
+  align-items: baseline;
+}
+.comment-block .comment-header .author {
+  color: #1f2328;
+  font-weight: 600;
+}
+.comment-block .comment-header .edited-pill {
+  font-size: 8pt;
+  padding: 0pt 4pt;
+  border: 1pt solid #d0d7de;
+  border-radius: 2pt;
+  background: #fff;
+}
+.comment-block .comment-body { padding: 10pt 12pt; }
+.comment-block .comment-body pre {
+  background: #f6f8fa;
+  padding: 8pt;
+  border-radius: 3pt;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9pt;
+}
+.comment-block .comment-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(175,184,193,.2);
+  padding: 0.5pt 4pt;
+  border-radius: 2pt;
+  font-size: 9.5pt;
+}
+.comment-block .comment-body table {
+  border-collapse: collapse;
+  margin: 6pt 0;
+}
+.comment-block .comment-body th,
+.comment-block .comment-body td {
+  border: 1pt solid #d0d7de;
+  padding: 4pt 8pt;
+  text-align: left;
+}
+.comment-block .comment-body img {
+  max-width: 100%;
+  height: auto;
+  page-break-inside: avoid;
+}
+.comment-block .comment-body p { margin: 6pt 0; }
+.comment-block .comment-body blockquote {
+  border-left: 3pt solid #d0d7de;
+  padding-left: 10pt;
+  margin: 6pt 0;
+  color: #57606a;
+}
+
+.comment-deleted .comment-body {
+  font-style: italic;
+  color: #8b949e;
+}
+
+/* ---------- Mentions ---------- */
+.mention {
+  font-weight: 600;
+  padding: 0 3pt;
+  border-radius: 2pt;
+}
+.mention-member { background: #ddf4ff; color: #0969da; }
+.mention-agent  { background: #dafbe1; color: #1a7f37; }
+.mention-issue  { background: #fff8c5; color: #9a6700; }
+
+/* ---------- File cards ---------- */
+.file-card {
+  display: inline-block;
+  padding: 4pt 8pt;
+  border: 1pt solid #d0d7de;
+  border-radius: 3pt;
+  background: #f6f8fa;
+  font-size: 9.5pt;
+  margin: 2pt 0;
+}
+.file-card-image  { border-color: #54aeff; }
+.file-card-pdf    { border-color: #fb8f44; }
+.file-card-text   { border-color: #8b949e; }
+
+/* ---------- Reactions ---------- */
+.reactions-line {
+  font-size: 9pt;
+  color: #57606a;
+  padding: 4pt 12pt 8pt 12pt;
+  border-top: 1pt dashed #d0d7de;
+}
+.reactions-line .reaction { margin-right: 10pt; }
+
+/* ---------- Thread indent ---------- */
+.thread-indent-0 { margin-left: 0; }
+.thread-indent-1 { margin-left: 18pt; }
+.thread-indent-2 { margin-left: 36pt; }
+.thread-indent-3 { margin-left: 54pt; }
+.thread-indent-4 { margin-left: 72pt; }
+.thread-indent-5 { margin-left: 90pt; }
+
+/* ---------- Footer ---------- */
+.export-footer {
+  margin-top: 28pt;
+  padding-top: 10pt;
+  border-top: 1pt solid #d0d7de;
+  font-size: 8pt;
+  color: #57606a;
+}
+</style>
+</head>
+<body>
+<header class="ticket-header">
+  <div class="identifier">{{ .Header.Identifier }}{{ if isThread .Mode }} · thread{{ end }}</div>
+  <h1>{{ .Header.Title }}</h1>
+  <dl class="meta">
+    {{- if .Header.ProjectTitle }}
+    <div><dt>Project:</dt> <dd>{{ .Header.ProjectTitle }}</dd></div>
+    {{- end }}
+    <div><dt>Status:</dt> <dd>{{ .Header.Status }}</dd></div>
+    {{- if .Header.Priority }}
+    <div><dt>Priority:</dt> <dd>{{ .Header.Priority }}</dd></div>
+    {{- end }}
+    <div><dt>Creator:</dt> <dd>{{ .Header.CreatorName }}</dd></div>
+    {{- if .Header.AssigneeName }}
+    <div><dt>Assignee:</dt> <dd>{{ .Header.AssigneeName }}</dd></div>
+    {{- end }}
+    <div><dt>Created:</dt> <dd>{{ fmtTime .Header.CreatedAt }}</dd></div>
+    {{- if .Header.UpdatedAt }}
+    <div><dt>Updated:</dt> <dd>{{ fmtTime .Header.UpdatedAt }}</dd></div>
+    {{- end }}
+  </dl>
+</header>
+
+{{- if .Description }}
+<section class="issue-description">
+  {{ safeHTML .Description }}
+</section>
+{{- end }}
+
+{{- if not (or .Description .Items) }}
+<section class="empty-issue">
+  <p><em>No content yet.</em></p>
+</section>
+{{- end }}
+
+<section class="timeline">
+{{- range .Items }}
+  {{- if isComment . }}
+    {{- with asComment . }}
+    <article class="comment-block {{ indentClass .Item.IndentLevel }}{{ if .Item.Deleted }} comment-deleted{{ end }}" data-comment-id="{{ .Item.ID }}">
+      <header class="comment-header">
+        <span class="author">{{ .Item.ActorName }}</span>
+        <span class="timestamp">{{ fmtTime .Item.CreatedAt }}</span>
+        {{- if .Item.IsEdited }}
+        <span class="edited-pill">edited</span>
+        {{- end }}
+      </header>
+      <div class="comment-body">
+        {{- if .Item.Deleted }}
+        <p><em>(deleted comment)</em></p>
+        {{- else }}
+        {{ safeHTML .BodyHTML }}
+        {{- end }}
+      </div>
+      {{- if reactionsOK .Item.Reactions }}
+      <footer class="reactions-line">
+        {{- range .Item.Reactions }}
+        <span class="reaction">{{ .Emoji }} ×{{ .Count }} ({{ joinNames .ActorNames }})</span>
+        {{- end }}
+      </footer>
+      {{- end }}
+    </article>
+    {{- end }}
+  {{- else if isActivity . }}
+    {{- with asActivity . }}
+    <div class="activity-row" data-activity-id="{{ .Item.ID }}">
+      <span class="author">{{ .Item.ActorName }}</span>
+      <span class="timestamp">· {{ fmtTime .Item.CreatedAt }} ·</span>
+      <span class="activity-action">{{ .Item.Action }}</span>
+    </div>
+    {{- end }}
+  {{- end }}
+{{- end }}
+</section>
+
+<footer class="export-footer">
+{{- if isThread .Mode }}
+Thread export of <a href="{{ .Header.URL }}">{{ .Header.Identifier }}</a>.
+{{- else }}
+Full ticket export · <a href="{{ .Header.URL }}">{{ .Header.Identifier }}</a>.
+{{- end }}
+</footer>
+</body>
+</html>
