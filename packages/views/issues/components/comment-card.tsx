@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useRef, useState } from "react";
-import { ChevronRight, Copy, Download, FileText, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, Copy, Download, FileDown, FileText, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@multica/ui/components/ui/card";
 import { Button } from "@multica/ui/components/ui/button";
@@ -38,6 +38,7 @@ import { ReplyInput } from "./reply-input";
 import type { TimelineEntry, Attachment } from "@multica/core/types";
 import { useCommentCollapseStore } from "@multica/core/issues/stores";
 import { useT } from "../../i18n";
+import { triggerDownload } from "../actions/issue-actions-menu-items";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -225,6 +226,33 @@ function CommentRow({
   const contentText = entry.content ?? "";
   const isLongContent = contentText.length > 500 || contentText.split("\n").length > 8;
 
+  // PUL-266: thread-mode PDF export is offered only on top-level
+  // comments — replies don't make sense as their own thread because
+  // the subtree would lack the root that establishes the context.
+  // Mirrors the issue-actions handler: optimistic "generating" toast,
+  // swap on settle, download via the server-picked filename so the
+  // CLI and the UI produce identically-named files.
+  const isTopLevel = !entry.parent_id;
+  const handleExportThreadPdf = useCallback(() => {
+    const pendingId = toast.loading(t(($) => $.comment.export_thread_pending));
+    api
+      .exportIssuePdf(issueId, { threadId: entry.id })
+      .then(({ blob, filename }) => {
+        triggerDownload(blob, filename);
+        toast.success(
+          t(($) => $.comment.export_thread_success, { filename }),
+          { id: pendingId },
+        );
+      })
+      .catch((err) => {
+        const message =
+          err instanceof Error
+            ? err.message
+            : t(($) => $.comment.export_thread_failed);
+        toast.error(message, { id: pendingId });
+      });
+  }, [issueId, entry.id, t]);
+
   return (
     <div className={`py-3${isTemp ? " opacity-60" : ""}`}>
       <div className="flex items-center gap-2.5">
@@ -267,6 +295,12 @@ function CommentRow({
                 <Copy className="h-3.5 w-3.5" />
                 {t(($) => $.comment.copy_action)}
               </DropdownMenuItem>
+              {isTopLevel && (
+                <DropdownMenuItem onClick={handleExportThreadPdf}>
+                  <FileDown className="h-3.5 w-3.5" />
+                  {t(($) => $.comment.export_thread_action)}
+                </DropdownMenuItem>
+              )}
               {(canEditEntry || canDeleteEntry) && (
                 <>
                   <DropdownMenuSeparator />
