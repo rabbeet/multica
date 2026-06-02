@@ -18,5 +18,21 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # PUL-266: gotenberg sidecar for the issue PDF export. Chromium-
+  # backed HTML → PDF service. Backend reaches it via
+  # GOTENBERG_URL=http://localhost:${GOTENBERG_PORT:-3001} when the
+  # server runs on the host (default in dev). When the backend
+  # itself runs in compose, point at http://gotenberg:3000 from the
+  # service name. The dev port maps host:3001 → container:3000 to
+  # avoid clashing with the frontend dev server on host:3000.
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports:
+      - "${GOTENBERG_PORT:-3001}:3000"
+    command:
+      - gotenberg
+      - --chromium-disable-javascript=true
+      - --api-timeout=30s
+
 volumes:
   pgdata:
