@@ -28,6 +28,20 @@ services:
       timeout: 5s
       retries: 5
 
+  # PUL-266: gotenberg sidecar for /api/issues/{id}/export.pdf.
+  # Chromium-backed HTML → PDF service. Backend reaches it via
+  # GOTENBERG_URL=http://gotenberg:3000 on the compose network. If
+  # GOTENBERG_URL is unset on the backend, the /export.pdf endpoint
+  # returns 503 ("PDF service not configured") and the rest of the
+  # API keeps working — gotenberg is a soft dependency by design.
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    command:
+      - gotenberg
+      - --chromium-disable-javascript=true
+      - --api-timeout=30s
+    restart: unless-stopped
+
   backend:
     image: ${MULTICA_BACKEND_IMAGE:-ghcr.io/multica-ai/multica-backend}:${MULTICA_IMAGE_TAG:-latest}
     depends_on:
@@ -58,9 +72,11 @@ services:
       APP_ENV: ${APP_ENV:-production}
       MULTICA_DEV_VERIFICATION_CODE: ${MULTICA_DEV_VERIFICATION_CODE:-}
       MULTICA_APP_URL: ${MULTICA_APP_URL:-http://localhost:3000}
-      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}                                     
-      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}                                     
-      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-} 
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      # PUL-266: PDF export sidecar.
+      GOTENBERG_URL: ${GOTENBERG_URL:-http://gotenberg:3000}
     restart: unless-stopped
 
   frontend:

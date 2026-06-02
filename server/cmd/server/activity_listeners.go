@@ -220,6 +220,48 @@ func registerActivityListeners(bus *events.Bus, queries *db.Queries) {
 	bus.Subscribe(protocol.EventTaskFailed, func(e events.Event) {
 		handleTaskActivity(ctx, bus, queries, e, "task_failed")
 	})
+
+	// issue:exported — PUL-266 audit row for PDF exports. The
+	// handler publishes mode (full/thread), bytes, duration_ms; we
+	// persist that as the Details JSON so /timeline can render the
+	// row with the same TimelineEntry shape as every other activity.
+	bus.Subscribe(protocol.EventIssueExported, func(e events.Event) {
+		payload, ok := e.Payload.(map[string]any)
+		if !ok {
+			return
+		}
+		issueID, _ := payload["issue_id"].(string)
+		if issueID == "" {
+			return
+		}
+
+		details, err := json.Marshal(map[string]any{
+			"mode":        payload["mode"],
+			"thread_id":   payload["thread_id"],
+			"bytes":       payload["bytes"],
+			"duration_ms": payload["duration_ms"],
+		})
+		if err != nil {
+			slog.Error("activity: failed to marshal export details",
+				"issue_id", issueID, "error", err)
+			details = []byte("{}")
+		}
+
+		activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
+			WorkspaceID: parseUUID(e.WorkspaceID),
+			IssueID:     parseUUID(issueID),
+			ActorType:   util.StrToText(e.ActorType),
+			ActorID:     parseUUID(e.ActorID),
+			Action:      "issue_exported",
+			Details:     details,
+		})
+		if err != nil {
+			slog.Error("activity: failed to record issue exported",
+				"issue_id", issueID, "error", err)
+			return
+		}
+		publishActivityEvent(bus, e, activity)
+	})
 }
 
 // handleTaskActivity records an activity for task:completed or task:failed events.

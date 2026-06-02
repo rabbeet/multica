@@ -3,9 +3,17 @@ package protocol
 // Event types for WebSocket communication between server, web clients, and daemon.
 const (
 	// Issue events
-	EventIssueCreated = "issue:created"
-	EventIssueUpdated = "issue:updated"
-	EventIssueDeleted = "issue:deleted"
+	EventIssueCreated  = "issue:created"
+	EventIssueUpdated  = "issue:updated"
+	EventIssueDeleted  = "issue:deleted"
+	// EventIssueExported fires when a member exports a ticket to PDF
+	// via /api/issues/{id}/export.pdf (PUL-266). The activity_log
+	// listener records this as "issue_exported" with details
+	// {mode, bytes, duration_ms} so /timeline shows it alongside
+	// status changes and other ticket history — useful for
+	// abuse-detection and usage analytics (finding 9A from
+	// /plan-eng-review).
+	EventIssueExported = "issue:exported"
 
 	// Comment events
 	EventCommentCreated       = "comment:created"
