@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -133,6 +134,20 @@ func main() {
 			slog.Warn("MULTICA_DEV_VERIFICATION_CODE is set but ignored because APP_ENV=production.")
 		} else {
 			slog.Warn("MULTICA_DEV_VERIFICATION_CODE is enabled. Use it only for local development or private test instances.")
+		}
+	}
+	if raw := os.Getenv("GOTENBERG_URL"); raw != "" {
+		// Belt-and-braces SSRF guard. GOTENBERG_URL is consumed by the
+		// pdfexport client (server/internal/service/pdfexport/gotenberg.go)
+		// which url.JoinPath's it with a hardcoded suffix and dials the
+		// result. A misconfigured file:// or unix:// value would dial
+		// the local filesystem; an internal host with a non-http scheme
+		// could reach surprising endpoints. Reject anything that isn't
+		// http(s) at startup so the misconfiguration is loud rather
+		// than a runtime surprise the first time a user exports a PDF.
+		if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			slog.Error("GOTENBERG_URL must be an http(s) URL with a host; PDF export disabled", "value", raw)
+			_ = os.Unsetenv("GOTENBERG_URL")
 		}
 	}
 

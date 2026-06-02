@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -222,6 +223,39 @@ var issueSearchCmd = &cobra.Command{
 	RunE:  runIssueSearch,
 }
 
+// PUL-266: PDF export entry point for the CLI. Mirrors the UI's
+// Export → PDF action so agents and scripts can produce the same
+// PDF a human reaches via the web UI. Hits the same
+// /api/issues/{id}/export.pdf endpoint as the browser, so the
+// resulting bytes are byte-identical between the two paths.
+var issueExportCmd = &cobra.Command{
+	Use:   "export <issue-id>",
+	Short: "Export an issue (or one thread inside it) to PDF",
+	Long: `Export an issue, or a single thread inside it, to a PDF file.
+
+The CLI calls the same /api/issues/{id}/export.pdf endpoint the web UI
+uses; the resulting bytes are byte-identical. Default filename is
+<identifier>.pdf for a whole-ticket export and
+<identifier>-thread-<sha8>.pdf for a thread export. Use -o to override
+the destination path.`,
+	Example: `  # Whole ticket → ./PUL-266.pdf
+  $ multica issue export PUL-266
+
+  # Single thread → ./PUL-266-thread-<sha8>.pdf
+  $ multica issue export PUL-266 --thread d7d12ffd-f19a-4507-841a-4c69d1a6808f
+
+  # Custom output path; refuses to overwrite existing file
+  $ multica issue export PUL-266 -o /tmp/ticket.pdf
+
+  # Force overwrite of an existing file
+  $ multica issue export PUL-266 -o /tmp/ticket.pdf -f
+
+  # Write to stdout (e.g. piped to an external viewer or a file)
+  $ multica issue export PUL-266 -o - > ticket.pdf`,
+	Args: exactArgs(1),
+	RunE: runIssueExport,
+}
+
 var validIssueStatuses = []string{
 	// PUL-13 status-flow rework (rev 2.2):
 	// New lifecycle values: waiting, planned, developing, deployed.
@@ -250,6 +284,12 @@ func init() {
 	issueCmd.AddCommand(issueRerunCmd)
 	issueCmd.AddCommand(issueSearchCmd)
 	issueCmd.AddCommand(issueCascadeCmd)
+	issueCmd.AddCommand(issueExportCmd)
+
+	// issue export
+	issueExportCmd.Flags().String("thread", "", "Export a single thread by top-level comment UUID (omit for whole-ticket export)")
+	issueExportCmd.Flags().StringP("output", "o", "", "Output path (\"-\" for stdout; defaults to <identifier>.pdf in cwd)")
+	issueExportCmd.Flags().BoolP("force", "f", false, "Overwrite the output file if it already exists")
 
 	issueCommentCmd.AddCommand(issueCommentListCmd)
 	issueCommentCmd.AddCommand(issueCommentAddCmd)
@@ -1578,4 +1618,83 @@ func truncateID(id string) string {
 		return string(runes[:8])
 	}
 	return id
+}
+
+// runIssueExport implements `multica issue export <id>`. The CLI is a
+// thin pass-through over /api/issues/{id}/export.pdf — the heavy
+// lifting (load, render, gotenberg roundtrip, activity log emit)
+// lives on the server, so the bytes returned here are byte-identical
+// to what the Web UI saves. See PUL-266 PR-3.
+func runIssueExport(cmd *cobra.Command, args []string) error {
+	client, err := newAPIClient(cmd)
+	if err != nil {
+		return err
+	}
+
+	threadID, _ := cmd.Flags().GetString("thread")
+	outputPath, _ := cmd.Flags().GetString("output")
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Build the API URL. The server accepts identifiers (e.g.
+	// "PUL-266") AND UUIDs at /api/issues/{id}; we forward whatever
+	// the user typed so `multica issue export PUL-266` works
+	// alongside `multica issue export <uuid>`.
+	path := "/api/issues/" + url.PathEscape(args[0]) + "/export.pdf"
+	if threadID != "" {
+		path += "?thread=" + url.QueryEscape(threadID)
+	}
+
+	// The server may take a while to render (large tickets +
+	// gotenberg roundtrip). 120s upper bound matches the UI
+	// expectation: anything slower is a bug, not a long render.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	body, suggestedName, err := client.DownloadBlobWithName(ctx, path)
+	if err != nil {
+		return fmt.Errorf("export: %w", err)
+	}
+
+	// Write to stdout if -o "-".
+	if outputPath == "-" {
+		if _, err := os.Stdout.Write(body); err != nil {
+			return fmt.Errorf("write stdout: %w", err)
+		}
+		return nil
+	}
+
+	// Decide the destination filename.
+	dest := outputPath
+	if dest == "" {
+		if suggestedName != "" {
+			dest = suggestedName
+		} else {
+			// Fallback: derive from the input identifier. Server
+			// normally always emits Content-Disposition, so this
+			// path runs only when an HTTP proxy strips the header.
+			dest = strings.TrimSpace(args[0]) + ".pdf"
+		}
+	}
+
+	// Refuse to clobber unless -f. Matches git's overwrite-protection
+	// posture — finding 8A from /plan-eng-review pinned this.
+	if _, statErr := os.Stat(dest); statErr == nil && !force {
+		return fmt.Errorf("file exists, use -f to overwrite: %s", dest)
+	}
+
+	if err := os.WriteFile(dest, body, 0o644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	abs, err := filepath.Abs(dest)
+	if err != nil {
+		abs = dest
+	}
+
+	fmt.Fprintln(os.Stderr, "Exported:", abs)
+	// JSON for scripted callers (mirrors `multica attachment download`).
+	return cli.PrintJSON(os.Stdout, map[string]any{
+		"path":  abs,
+		"bytes": len(body),
+	})
 }

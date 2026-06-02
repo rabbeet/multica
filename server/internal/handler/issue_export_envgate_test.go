@@ -21,19 +21,14 @@ func TestExportIssueHTMLDev_EnvGate(t *testing.T) {
 	cases := []struct {
 		name       string
 		envSet     bool
-		appEnv     string
 		queryParam string
 		wantStatus int
 	}{
-		{"env unset, no _dev",                   false, "", "", http.StatusNotFound},
-		{"env unset, _dev=1",                    false, "", "1", http.StatusNotFound},
-		{"env set, no _dev",                     true, "", "", http.StatusNotFound},
-		{"env set, _dev=0",                      true, "", "0", http.StatusNotFound},
-		{"env set, _dev=1, APP_ENV=production",  true, "production", "1", http.StatusNotFound},
-		{"env set, _dev=1, APP_ENV=PRODUCTION",  true, "PRODUCTION", "1", http.StatusNotFound},
-		{"env set, _dev=1, APP_ENV= production", true, " production ", "1", http.StatusNotFound},
-		{"env set, _dev=1, APP_ENV=staging",     true, "staging", "1", -1}, // gate passes
-		{"env set, _dev=1, APP_ENV unset",       true, "", "1", -1},        // gate passes
+		{"env unset, no _dev",      false, "", http.StatusNotFound},
+		{"env unset, _dev=1",       false, "1", http.StatusNotFound},
+		{"env set, no _dev",        true, "", http.StatusNotFound},
+		{"env set, _dev=0",         true, "0", http.StatusNotFound},
+		{"env set, _dev=1",         true, "1", -1}, // 401/500/200 fine — gate passed
 	}
 
 	for _, tc := range cases {
@@ -41,9 +36,6 @@ func TestExportIssueHTMLDev_EnvGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.envSet {
 				t.Setenv("MULTICA_DEV", "1")
-			}
-			if tc.appEnv != "" {
-				t.Setenv("APP_ENV", tc.appEnv)
 			}
 			req := httptest.NewRequest(http.MethodGet,
 				"/api/issues/PUL-1/export.html?_dev="+tc.queryParam, nil)

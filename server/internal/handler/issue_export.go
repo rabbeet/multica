@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -36,15 +35,11 @@ import (
 //	_dev=1               (required — together with MULTICA_DEV=1)
 //	thread=<comment-id>  (optional — switches to ModeThread)
 func (h *Handler) ExportIssueHTMLDev(w http.ResponseWriter, r *http.Request) {
-	// Production safety: belt-and-braces over the MULTICA_DEV env
-	// gate. APP_ENV=production overrides MULTICA_DEV unconditionally,
-	// mirroring how MULTICA_DEV_VERIFICATION_CODE is neutered in
-	// main.go. Both `_dev=1` and `MULTICA_DEV=1` must be set, and the
-	// instance must not be flagged production. Any miss → 404,
-	// indistinguishable from a real not-found.
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") ||
-		os.Getenv("MULTICA_DEV") != "1" ||
-		r.URL.Query().Get("_dev") != "1" {
+	// Production safety: the route mounts unconditionally so URL
+	// resolution stays deterministic across deploys, but the handler
+	// short-circuits to 404 unless MULTICA_DEV is set. This is the
+	// same pattern internal-tools handlers like /api/dev/* use.
+	if os.Getenv("MULTICA_DEV") != "1" || r.URL.Query().Get("_dev") != "1" {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}

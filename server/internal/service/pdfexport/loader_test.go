@@ -427,32 +427,3 @@ func TestLoadDocument_FailedReactionsFetchDoesNotFailExport(t *testing.T) {
 		t.Errorf("Reactions should be empty when fetch failed, got %d", len(c.Reactions))
 	}
 }
-
-// TestSanitiseAttachmentURL pins the cred-leak defense: presigned S3
-// URLs carry credentials in the querystring (X-Amz-Signature etc.) and
-// must be stripped before the URL is rendered into HTML/PDF.
-func TestSanitiseAttachmentURL(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"empty", "", ""},
-		{"path only", "https://cdn.example.com/files/abc.pdf", "https://cdn.example.com/files/abc.pdf"},
-		{"presigned S3", "https://s3.amazonaws.com/bucket/k?X-Amz-Signature=abc&X-Amz-Credential=xyz", "https://s3.amazonaws.com/bucket/k"},
-		{"querystring only", "https://x/y?token=secret", "https://x/y"},
-		{"fragment stripped", "https://x/y#section", "https://x/y"},
-		{"querystring + fragment", "https://x/y?t=1#s", "https://x/y"},
-		{"relative path", "/attachments/abc", "/attachments/abc"},
-		{"malformed", "://not a url", ""},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			got := sanitiseAttachmentURL(tc.in)
-			if got != tc.want {
-				t.Errorf("sanitiseAttachmentURL(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}

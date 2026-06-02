@@ -8,6 +8,7 @@ import {
   ArrowUp,
   Calendar,
   Clock,
+  FileDown,
   FolderOpen,
   Link2,
   MoreHorizontal,
@@ -149,6 +150,32 @@ export function IssueActionsMenuItems({
     );
   }, [tasks, t]);
 
+  // PUL-266: PDF export. The fetch is fire-and-forget — we show a
+  // "generating" toast immediately so the user knows the click was
+  // received (gotenberg + Chromium can take a few seconds on long
+  // tickets), then swap it for a success / error toast when the
+  // promise settles. Download is triggered via a synthesised
+  // <a download> element so the browser saves under the filename
+  // the server picked in Content-Disposition.
+  const handleExportPdf = useCallback(() => {
+    const pendingId = toast.loading(t(($) => $.actions.export_pdf_pending));
+    api
+      .exportIssuePdf(issue.id)
+      .then(({ blob, filename }) => {
+        triggerDownload(blob, filename);
+        toast.success(t(($) => $.actions.export_pdf_success, { filename }), {
+          id: pendingId,
+        });
+      })
+      .catch((err) => {
+        const message =
+          err instanceof Error
+            ? err.message
+            : t(($) => $.actions.export_pdf_failed);
+        toast.error(message, { id: pendingId });
+      });
+  }, [issue.id, t]);
+
   return (
     <>
       {/* Status */}
@@ -288,6 +315,14 @@ export function IssueActionsMenuItems({
         <FolderOpen className="h-3.5 w-3.5" />
         {t(($) => $.actions.copy_workdir_path)}
       </P.Item>
+      {/* PUL-266: PDF export. Whole-ticket variant; the thread
+          variant lives in the comment-card overflow menu so users
+          reach for it where the thread is, not where the ticket
+          actions live. */}
+      <P.Item onClick={handleExportPdf}>
+        <FileDown className="h-3.5 w-3.5" />
+        {t(($) => $.actions.export_pdf)}
+      </P.Item>
 
       <P.Separator />
 
@@ -363,6 +398,29 @@ export function IssueActionsMenuItems({
       </P.Item>
     </>
   );
+}
+
+/**
+ * PUL-266: trigger a browser download for a Blob. We synthesise an
+ * <a download> anchor instead of opening a new tab so iOS Safari's
+ * Files app receives the file directly under the server-picked
+ * filename. The blob URL is revoked on the next microtask so we
+ * don't leak memory across many exports in one session.
+ *
+ * Lives here rather than in @multica/core/utils because no other
+ * call site needs it yet — extract on the second consumer.
+ */
+export function triggerDownload(blob: Blob, filename: string): void {
+  if (typeof window === "undefined") return; // SSR safety
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  // Defer revoke so the browser has time to start the download.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function pickLatestWorkDir(tasks: AgentTask[] | undefined): string | undefined {
