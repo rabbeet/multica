@@ -438,6 +438,74 @@ func (c *APIClient) DownloadFile(ctx context.Context, downloadURL string) ([]byt
 	return io.ReadAll(io.LimitReader(resp.Body, maxDownloadSize))
 }
 
+// DownloadBlobWithName GETs a path on the API (auth-headers attached),
+// returns the response body and the suggested filename extracted from
+// the response's Content-Disposition header. The caller is responsible
+// for deciding whether to honour the filename (e.g. CLI tools may
+// override with their own -o/--output flag).
+//
+// PUL-266 introduced this for `multica issue export`, which needs a
+// filename that matches the one the Web UI saves so users can archive
+// exports without surprise renames.
+//
+// Cap mirrors DownloadFile's: 100 MB hard limit on body size. The
+// pdfexport service's MaxHTMLSize is 50 MB which historically yields
+// at most a similar-sized PDF; 100 MB leaves headroom without
+// admitting pathological responses that would balloon memory.
+func (c *APIClient) DownloadBlobWithName(ctx context.Context, path string) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	c.setHeaders(req)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, "", fmt.Errorf("download returned %d: %s",
+			resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	const maxDownloadSize = 100 << 20
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadSize))
+	if err != nil {
+		return nil, "", err
+	}
+
+	filename := parseContentDispositionFilename(resp.Header.Get("Content-Disposition"))
+	return body, filename, nil
+}
+
+// parseContentDispositionFilename extracts the filename= field from a
+// Content-Disposition header value. Returns "" if the header is
+// missing or doesn't carry a filename. We don't decode RFC 5987
+// "filename*" forms — the server only emits ASCII-7 filenames for
+// /export.pdf today and adding 5987 decoding would mean a third-party
+// dependency for a path nothing uses yet.
+func parseContentDispositionFilename(cd string) string {
+	if cd == "" {
+		return ""
+	}
+	parts := strings.Split(cd, ";")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if !strings.HasPrefix(strings.ToLower(p), "filename=") {
+			continue
+		}
+		value := strings.TrimPrefix(p, "filename=")
+		value = strings.TrimPrefix(value, "Filename=")
+		// Drop wrapping quotes if present.
+		value = strings.Trim(value, `"`)
+		return value
+	}
+	return ""
+}
+
 // HealthCheck hits the /health endpoint and returns the response body.
 func (c *APIClient) HealthCheck(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/health", nil)

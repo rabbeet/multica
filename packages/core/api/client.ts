@@ -486,6 +486,68 @@ export class ApiClient {
     await this.fetch(`/api/issues/${id}`, { method: "DELETE" });
   }
 
+  /**
+   * PUL-266: export an issue (or one of its threads) to PDF.
+   *
+   * Returns the PDF as a Blob plus the server-suggested filename
+   * (parsed from Content-Disposition). The UI uses the suggested
+   * filename to trigger a browser download, falling back to a
+   * client-computed name only if the header is missing — which
+   * should not happen in practice but matches CLI fallback behaviour
+   * (see server/cmd/multica/cmd_issue.go).
+   *
+   * Throws ApiError on non-2xx status; callers should show a toast
+   * with err.message and not retry automatically (server might be
+   * 413 "ticket too large for single PDF; try thread export" or 503
+   * "PDF service unavailable").
+   */
+  async exportIssuePdf(
+    id: string,
+    opts?: { threadId?: string },
+  ): Promise<{ blob: Blob; filename: string }> {
+    const params = new URLSearchParams();
+    if (opts?.threadId) params.set("thread", opts.threadId);
+    const qs = params.toString();
+    const path = `/api/issues/${encodeURIComponent(id)}/export.pdf${qs ? `?${qs}` : ""}`;
+
+    const rid = createRequestId();
+    const start = Date.now();
+    this.logger.info(`→ GET ${path}`, { rid });
+
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "GET",
+      headers: {
+        "X-Request-ID": rid,
+        ...this.authHeaders(),
+      },
+      credentials: "include",
+    });
+    if (!res.ok) {
+      if (res.status === 401) this.handleUnauthorized();
+      const { message, body } = await this.parseErrorBody(
+        res,
+        `API error: ${res.status} ${res.statusText}`,
+      );
+      const logLevel = res.status === 404 ? "warn" : "error";
+      this.logger[logLevel](`← ${res.status} ${path}`, {
+        rid,
+        duration: `${Date.now() - start}ms`,
+        error: message,
+      });
+      throw new ApiError(message, res.status, res.statusText, body);
+    }
+
+    const blob = await res.blob();
+    const filename = parseExportFilename(res.headers.get("Content-Disposition"))
+      ?? `${id}.pdf`;
+    this.logger.info(`← ${res.status} ${path}`, {
+      rid,
+      duration: `${Date.now() - start}ms`,
+      bytes: blob.size,
+    });
+    return { blob, filename };
+  }
+
   async batchUpdateIssues(issueIds: string[], updates: UpdateIssueRequest): Promise<{ updated: number }> {
     return this.fetch("/api/issues/batch-update", {
       method: "POST",
@@ -1340,4 +1402,26 @@ export class ApiClient {
   async cancelReminder(reminderId: string): Promise<IssueReminder> {
     return this.fetch(`/api/reminders/${reminderId}`, { method: "DELETE" });
   }
+}
+
+/**
+ * Extract the filename= field from a Content-Disposition header value.
+ * PUL-266: used by ApiClient.exportIssuePdf so the browser-side
+ * download is named the same as the CLI's, which is the same as
+ * what the server picked. We don't decode RFC 5987 "filename*"
+ * forms because the server only emits ASCII-7 filenames today.
+ */
+export function parseExportFilename(cd: string | null | undefined): string | null {
+  if (!cd) return null;
+  for (const raw of cd.split(";")) {
+    const part = raw.trim();
+    const lower = part.toLowerCase();
+    if (!lower.startsWith("filename=")) continue;
+    let value = part.slice("filename=".length);
+    if (value.startsWith(`"`) && value.endsWith(`"`)) {
+      value = value.slice(1, -1);
+    }
+    return value || null;
+  }
+  return null;
 }
