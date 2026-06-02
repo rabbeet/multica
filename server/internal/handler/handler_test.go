@@ -714,6 +714,95 @@ func TestCreateIssueAcceptsValidMemberAssignee(t *testing.T) {
 	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
 }
 
+// TestCreateIssueDefaultsAssigneeFromProject covers PUL-260: when the request
+// omits the assignee fields and the chosen project has a default_assignee
+// configured, the issue should be persisted with that assignee.
+func TestCreateIssueDefaultsAssigneeFromProject(t *testing.T) {
+	agentID := createHandlerTestAgent(t, "default-assignee-agent", []byte("[]"))
+
+	var projectID string
+	if err := testPool.QueryRow(context.Background(), `
+		INSERT INTO project (workspace_id, title, default_assignee_type, default_assignee_id)
+		VALUES ($1, 'pul-260 default-routing project', 'agent', $2)
+		RETURNING id
+	`, testWorkspaceID, agentID).Scan(&projectID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM project WHERE id = $1`, projectID)
+	})
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":      "ticket without explicit assignee",
+		"project_id": projectID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var created IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if created.AssigneeType == nil || *created.AssigneeType != "agent" {
+		t.Fatalf("expected assignee_type=agent, got %v", created.AssigneeType)
+	}
+	if created.AssigneeID == nil || *created.AssigneeID != agentID {
+		t.Fatalf("expected assignee_id=%s, got %v", agentID, created.AssigneeID)
+	}
+
+	cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+	cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+}
+
+// TestCreateIssueExplicitAssigneeWinsOverProjectDefault: when the caller
+// supplies an assignee explicitly, the project's default is ignored.
+func TestCreateIssueExplicitAssigneeWinsOverProjectDefault(t *testing.T) {
+	agentID := createHandlerTestAgent(t, "default-agent-overridden", []byte("[]"))
+
+	var projectID string
+	if err := testPool.QueryRow(context.Background(), `
+		INSERT INTO project (workspace_id, title, default_assignee_type, default_assignee_id)
+		VALUES ($1, 'pul-260 explicit-wins project', 'agent', $2)
+		RETURNING id
+	`, testWorkspaceID, agentID).Scan(&projectID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM project WHERE id = $1`, projectID)
+	})
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "ticket with explicit member assignee",
+		"project_id":    projectID,
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var created IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if created.AssigneeType == nil || *created.AssigneeType != "member" {
+		t.Fatalf("expected assignee_type=member (explicit), got %v", created.AssigneeType)
+	}
+	if created.AssigneeID == nil || *created.AssigneeID != testUserID {
+		t.Fatalf("expected assignee_id=%s, got %v", testUserID, created.AssigneeID)
+	}
+
+	cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+	cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+}
+
 // TestCreateIssueRejectsMalformedAssigneeID covers the case where parseUUID
 // silently produces an invalid pgtype.UUID and the validator would otherwise
 // treat (no type + unparseable id) as "no assignee" and accept the request.
