@@ -17,6 +17,28 @@ import (
 	"github.com/multica-ai/multica/server/internal/util"
 )
 
+// imageExts are the file suffixes that runIssueCommentAdd auto-embeds as
+// inline markdown images. Mirrors packages/ui/markdown/file-cards.ts so the
+// frontend treats the embedded URL as an image and shows the image-view
+// toolbar instead of the file-card download chip.
+var imageExts = map[string]struct{}{
+	".png": {}, ".jpg": {}, ".jpeg": {}, ".gif": {},
+	".webp": {}, ".svg": {}, ".ico": {}, ".bmp": {},
+	".tif": {}, ".tiff": {},
+}
+
+func isImagePath(p string) bool {
+	_, ok := imageExts[strings.ToLower(filepath.Ext(p))]
+	return ok
+}
+
+// markdownEscapeAlt escapes the bracket characters that would otherwise close
+// the alt-text span of `![alt](url)`. The url itself is server-generated and
+// does not contain spaces or unbalanced parens.
+func markdownEscapeAlt(s string) string {
+	return strings.NewReplacer("[", `\[`, "]", `\]`).Replace(s)
+}
+
 // resolveTextFlag picks between a `--<name>` flag value and a paired
 // `--<name>-stdin` flag, mirroring the existing `--content` / `--content-stdin`
 // pattern. It returns the resolved string and an error when both are set or
@@ -656,7 +678,7 @@ func runIssueCreate(cmd *cobra.Command, _ []string) error {
 	// duplicates the issue. Warn on stderr and continue.
 	issueID := strVal(result, "id")
 	for _, att := range pending {
-		if _, uploadErr := client.UploadFile(ctx, att.data, att.path, issueID); uploadErr != nil {
+		if _, _, uploadErr := client.UploadFile(ctx, att.data, att.path, issueID); uploadErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: upload attachment %s failed (issue already created, %s): %v\n",
 				att.path, strVal(result, "identifier"), uploadErr)
 			continue
@@ -986,13 +1008,36 @@ func runIssueCommentAdd(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	// `/api/upload-file` parses `issue_id` as a raw UUID, while the rest of
+	// the comment-add flow (and the user-facing `issueID` argument) accepts
+	// the human identifier (e.g. PUL-262). When attachments are present,
+	// resolve the identifier upfront so the upload form field is a UUID.
+	// One extra GET only when --attachment is used — the comment POST itself
+	// still goes through loadIssueForUser and works with either form.
+	uploadIssueID := issueID
+	if len(attachments) > 0 {
+		var issue map[string]any
+		if err := client.GetJSON(ctx, "/api/issues/"+issueID, &issue); err != nil {
+			return fmt.Errorf("resolve issue %s: %w", issueID, err)
+		}
+		if id, _ := issue["id"].(string); id != "" {
+			uploadIssueID = id
+		}
+	}
+
 	// Upload attachments and collect their IDs. URLs are skipped with a
 	// warning — `--attachment` only accepts local file paths, and a
 	// markdown image URL embedded in agent-supplied content should never
 	// be re-uploaded as if it were a file. Unlike `issue create`, this
 	// path uploads BEFORE posting the comment, so a hard failure on a
 	// real (local) attachment correctly aborts the whole call.
+	//
+	// Image attachments are auto-embedded as `![filename](url)` appended to
+	// the comment body so they render inline in the ticket UI. The frontend
+	// AttachmentList dedups via `content.includes(a.url)`, so the file-card
+	// chip is suppressed for the same image — non-images keep their chip.
 	var attachmentIDs []string
+	var imageInlines []string
 	for _, filePath := range attachments {
 		if isHTTPURL(filePath) {
 			fmt.Fprintf(os.Stderr, "Skipping --attachment %q: URLs are not supported here, only local file paths.\n", filePath)
@@ -1002,12 +1047,25 @@ func runIssueCommentAdd(cmd *cobra.Command, args []string) error {
 		if readErr != nil {
 			return fmt.Errorf("read attachment %s: %w", filePath, readErr)
 		}
-		id, uploadErr := client.UploadFile(ctx, data, filePath, issueID)
+		id, uploadedURL, uploadErr := client.UploadFile(ctx, data, filePath, uploadIssueID)
 		if uploadErr != nil {
 			return fmt.Errorf("upload attachment %s: %w", filePath, uploadErr)
 		}
 		attachmentIDs = append(attachmentIDs, id)
+		if isImagePath(filePath) && uploadedURL != "" && !strings.Contains(content, uploadedURL) {
+			imageInlines = append(imageInlines,
+				fmt.Sprintf("![%s](%s)", markdownEscapeAlt(filepath.Base(filePath)), uploadedURL))
+		}
 		fmt.Fprintf(os.Stderr, "Uploaded %s\n", filePath)
+	}
+
+	if len(imageInlines) > 0 {
+		joined := strings.Join(imageInlines, "\n\n")
+		if strings.TrimSpace(content) == "" {
+			content = joined
+		} else {
+			content = content + "\n\n" + joined
+		}
 	}
 
 	body := map[string]any{"content": content}
