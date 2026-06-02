@@ -116,6 +116,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		AllowSignup:         os.Getenv("ALLOW_SIGNUP") != "false",
 		AllowedEmails:       splitAndTrim(os.Getenv("ALLOWED_EMAILS")),
 		AllowedEmailDomains: splitAndTrim(os.Getenv("ALLOWED_EMAIL_DOMAINS")),
+		// PUL-266: gotenberg sidecar URL for /export.pdf. Empty
+		// disables the endpoint (returns 503 with "PDF service not
+		// configured"). Production should set this to the in-cluster
+		// gotenberg service URL; docker-compose maps it to
+		// http://gotenberg:3000 by default.
+		GotenbergURL: os.Getenv("GOTENBERG_URL"),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	if opts.DaemonWakeup != nil {
@@ -401,12 +407,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/comments", h.CreateComment)
 					r.Get("/comments", h.ListComments)
 					r.Get("/timeline", h.ListTimeline)
-					// PUL-266 dev preview for the in-flight PDF
-					// export pipeline. Production-safe via the
-					// MULTICA_DEV=1 env gate inside the handler —
-					// returns 404 when unset. PR-2 swaps this for
-					// /export.pdf and drops the env gate.
+					// PUL-266 PDF export. /export.html is the
+					// MULTICA_DEV-gated HTML preview shipped in PR-1b
+					// (returns 404 in production). /export.pdf is the
+					// production endpoint shipped in PR-2 — both
+					// share the loader and renderer; /export.pdf adds
+					// the gotenberg sidecar roundtrip.
 					r.Get("/export.html", h.ExportIssueHTMLDev)
+					r.Get("/export.pdf", h.ExportIssuePDF)
 					r.Get("/subscribers", h.ListIssueSubscribers)
 					r.Post("/subscribe", h.SubscribeToIssue)
 					r.Post("/unsubscribe", h.UnsubscribeFromIssue)

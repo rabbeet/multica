@@ -28,6 +28,35 @@ services:
       timeout: 5s
       retries: 5
 
+  # PUL-266: gotenberg sidecar for /api/issues/{id}/export.pdf.
+  # Chromium-backed HTML → PDF service. Backend reaches it via
+  # GOTENBERG_URL=http://gotenberg:3000 on the compose network. If
+  # GOTENBERG_URL is unset on the backend, the /export.pdf endpoint
+  # returns 503 ("PDF service not configured") and the rest of the
+  # API keeps working — gotenberg is a soft dependency by design.
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    command:
+      - gotenberg
+      - --chromium-disable-javascript=true
+      - --api-timeout=30s
+    restart: unless-stopped
+    # PUL-266 hardening: Chromium tabs can be RAM-hungry and a runaway
+    # render shouldn't be able to evict the postgres or backend
+    # container. cap_drop+no-new-privileges harden the container
+    # without breaking Chromium (which manages its own sandbox).
+    # NOTE: pin `image:` to a digest (sha256:...) in a follow-up to
+    # eliminate the floating-tag supply-chain risk; tag is kept as 8
+    # until the deploy owner picks the digest.
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   backend:
     image: ${MULTICA_BACKEND_IMAGE:-ghcr.io/multica-ai/multica-backend}:${MULTICA_IMAGE_TAG:-latest}
     depends_on:
@@ -58,9 +87,11 @@ services:
       APP_ENV: ${APP_ENV:-production}
       MULTICA_DEV_VERIFICATION_CODE: ${MULTICA_DEV_VERIFICATION_CODE:-}
       MULTICA_APP_URL: ${MULTICA_APP_URL:-http://localhost:3000}
-      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}                                     
-      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}                                     
-      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-} 
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      # PUL-266: PDF export sidecar.
+      GOTENBERG_URL: ${GOTENBERG_URL:-http://gotenberg:3000}
     restart: unless-stopped
 
   frontend:

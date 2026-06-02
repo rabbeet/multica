@@ -173,6 +173,10 @@
     "copy_action": "复制",
     "copied_toast": "已复制",
     "edit_action": "编辑",
+    "export_thread_action": "导出该讨论串 → PDF",
+    "export_thread_pending": "正在生成 PDF…",
+    "export_thread_success": "已保存 {{filename}}",
+    "export_thread_failed": "导出讨论串失败",
     "update_failed": "更新评论失败",
     "send_failed": "发送评论失败",
     "send_reply_failed": "发送回复失败",
@@ -254,7 +258,11 @@
     "create_sub_issue": "创建子 issue",
     "set_parent_issue": "设置父 issue...",
     "add_sub_issue": "添加子 issue...",
-    "delete_issue": "删除 issue"
+    "delete_issue": "删除 issue",
+    "export_pdf": "导出 → PDF",
+    "export_pdf_pending": "正在生成 PDF…",
+    "export_pdf_success": "已保存 {{filename}}",
+    "export_pdf_failed": "导出 issue 失败"
   },
   "pickers": {
     "filter_options_aria": "筛选选项",

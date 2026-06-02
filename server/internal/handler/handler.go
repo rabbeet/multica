@@ -47,6 +47,12 @@ type Config struct {
 	AllowSignup         bool
 	AllowedEmails       []string
 	AllowedEmailDomains []string
+
+	// GotenbergURL is the HTTP base URL of the gotenberg sidecar that
+	// converts rendered HTML to PDF for the PUL-266 export feature.
+	// Wired from ${GOTENBERG_URL} in main.go; empty disables the
+	// /export.pdf route (returns 503). PR-2.
+	GotenbergURL string
 }
 
 type Handler struct {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiClient, ApiError } from "./client";
+import { ApiClient, ApiError, parseExportFilename } from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -143,5 +143,134 @@ describe("ApiClient", () => {
     expect(headers["X-Client-Platform"]).toBeUndefined();
     expect(headers["X-Client-Version"]).toBeUndefined();
     expect(headers["X-Client-OS"]).toBeUndefined();
+  });
+});
+
+// PUL-266: PDF export filename parser. Pure function; tests cover the
+// shapes the server actually emits plus the fallback paths the UI
+// relies on (null when missing, unquoted vs quoted forms).
+describe("parseExportFilename", () => {
+  it("returns null for missing or empty headers", () => {
+    expect(parseExportFilename(null)).toBeNull();
+    expect(parseExportFilename(undefined)).toBeNull();
+    expect(parseExportFilename("")).toBeNull();
+  });
+
+  it("extracts a quoted filename", () => {
+    expect(
+      parseExportFilename(`attachment; filename="PUL-266.pdf"`),
+    ).toBe("PUL-266.pdf");
+  });
+
+  it("extracts an unquoted filename", () => {
+    expect(parseExportFilename(`attachment; filename=PUL-266.pdf`)).toBe(
+      "PUL-266.pdf",
+    );
+  });
+
+  it("handles thread-style filenames with multiple dashes", () => {
+    expect(
+      parseExportFilename(
+        `attachment; filename="PUL-266-thread-deadbeef.pdf"`,
+      ),
+    ).toBe("PUL-266-thread-deadbeef.pdf");
+  });
+
+  it("returns null when no filename field is present", () => {
+    expect(parseExportFilename("attachment")).toBeNull();
+  });
+});
+
+describe("ApiClient.exportIssuePdf", () => {
+  it("returns the body as a Blob and the server-suggested filename", async () => {
+    const pdfBlob = new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], {
+      type: "application/pdf",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(pdfBlob, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="PUL-266.pdf"`,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient("https://api.example.test");
+    const { blob, filename } = await client.exportIssuePdf("PUL-266");
+
+    expect(filename).toBe("PUL-266.pdf");
+    expect(blob.type).toBe("application/pdf");
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://api.example.test/api/issues/PUL-266/export.pdf",
+    );
+  });
+
+  it("appends ?thread=<id> when threadId is set", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])]), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="PUL-266-thread-abcdef01.pdf"`,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient("https://api.example.test");
+    await client.exportIssuePdf("PUL-266", { threadId: "abc-123" });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://api.example.test/api/issues/PUL-266/export.pdf?thread=abc-123",
+    );
+  });
+
+  it("falls back to <id>.pdf when the server omits Content-Disposition", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])]), {
+          status: 200,
+          headers: { "Content-Type": "application/pdf" },
+        }),
+      ),
+    );
+
+    const client = new ApiClient("https://api.example.test");
+    const { filename } = await client.exportIssuePdf("PUL-266");
+
+    expect(filename).toBe("PUL-266.pdf");
+  });
+
+  it("throws an ApiError with the server's message on non-2xx", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: "ticket too large for single PDF; try thread export",
+          }),
+          {
+            status: 413,
+            statusText: "Payload Too Large",
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      ),
+    );
+
+    const client = new ApiClient("https://api.example.test");
+    try {
+      await client.exportIssuePdf("PUL-266");
+      throw new Error("expected exportIssuePdf to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        status: 413,
+        message: "ticket too large for single PDF; try thread export",
+      });
+    }
   });
 });
