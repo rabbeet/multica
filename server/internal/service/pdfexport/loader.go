@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"time"
 
@@ -402,10 +403,30 @@ func groupAttachmentsByComment(ctx context.Context, q LoaderQueries, commentIDs 
 			Filename:  a.Filename,
 			MimeType:  a.ContentType,
 			SizeBytes: a.SizeBytes,
-			URL:       a.Url,
+			URL:       sanitiseAttachmentURL(a.Url),
 		})
 	}
 	return out
+}
+
+// sanitiseAttachmentURL strips query string and fragment before the URL
+// reaches rendered HTML / PDF output. Attachment URLs may be presigned
+// S3 links whose querystring carries the access credentials; embedding
+// them in the export would leak those credentials to anyone with the
+// rendered document. The path alone is still useful as a stable
+// identifier in the dev HTML preview and PDF footer — it just won't
+// dereference without re-signing.
+func sanitiseAttachmentURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 // mapHeader builds the TicketHeader's static fields from the issue
