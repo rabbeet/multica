@@ -151,6 +151,34 @@ func (q *Queries) ArchiveInboxItem(ctx context.Context, id pgtype.UUID) (InboxIt
 	return i, err
 }
 
+const archiveOldReadInbox = `-- name: ArchiveOldReadInbox :execrows
+UPDATE inbox_item SET archived = true
+WHERE id IN (
+  SELECT id FROM inbox_item
+   WHERE archived = false
+     AND read = true
+     AND created_at < now() - ($1::bigint * interval '1 second')
+   ORDER BY created_at ASC
+   LIMIT 5000
+)
+`
+
+// PUL-445 retention. Archive read-and-not-yet-archived items older than
+// $1 seconds. Runs hourly from cmd/server/inbox_cleanup_scheduler.go so
+// the inbox does not accumulate 2+ months of read notifications the way
+// workspace f00bf003 grew to 2553 rows before shipping this fix.
+//
+// The inner SELECT + LIMIT chunks the sweep so the first run on a table
+// with tens of thousands of eligible rows still holds row locks only
+// for the batch, not the whole tail. Next tick picks up the residue.
+func (q *Queries) ArchiveOldReadInbox(ctx context.Context, ttlSeconds int64) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveOldReadInbox, ttlSeconds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countUnreadInbox = `-- name: CountUnreadInbox :one
 SELECT count(*) FROM inbox_item
 WHERE workspace_id = $1 AND recipient_type = $2 AND recipient_id = $3 AND read = false AND archived = false
@@ -351,13 +379,22 @@ LEFT JOIN active_tasks  at ON at.issue_id = i.issue_id
 LEFT JOIN last_status   lst ON lst.issue_id = i.issue_id
 LEFT JOIN last_comment  lc  ON lc.issue_id = i.issue_id
 WHERE i.workspace_id = $1 AND i.recipient_type = $2 AND i.recipient_id = $3 AND i.archived = false
+  -- PUL-445 keyset pagination: NULL 'before' returns the first page,
+  -- caller-provided timestamp walks strictly-older rows. Combined with
+  -- the ORDER BY + LIMIT below and the partial index
+  -- idx_inbox_recipient_active_recent (migration 091), the planner
+  -- reads exactly LIMIT rows via an index scan.
+  AND ($4::timestamptz IS NULL OR i.created_at < $4::timestamptz)
 ORDER BY i.created_at DESC
+LIMIT $5::int
 `
 
 type ListInboxItemsParams struct {
-	WorkspaceID   pgtype.UUID `json:"workspace_id"`
-	RecipientType string      `json:"recipient_type"`
-	RecipientID   pgtype.UUID `json:"recipient_id"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	RecipientType string             `json:"recipient_type"`
+	RecipientID   pgtype.UUID        `json:"recipient_id"`
+	Before        pgtype.Timestamptz `json:"before"`
+	Lim           int32              `json:"lim"`
 }
 
 type ListInboxItemsRow struct {
@@ -420,7 +457,13 @@ type ListInboxItemsRow struct {
 // issues. The DISTINCT ON form is index-driven by the three indices
 // above.
 func (q *Queries) ListInboxItems(ctx context.Context, arg ListInboxItemsParams) ([]ListInboxItemsRow, error) {
-	rows, err := q.db.Query(ctx, listInboxItems, arg.WorkspaceID, arg.RecipientType, arg.RecipientID)
+	rows, err := q.db.Query(ctx, listInboxItems,
+		arg.WorkspaceID,
+		arg.RecipientType,
+		arg.RecipientID,
+		arg.Before,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
