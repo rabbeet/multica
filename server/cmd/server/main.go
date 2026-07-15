@@ -364,6 +364,14 @@ func main() {
 	// staging). Shares autopilotCtx with the rest of the schedulers.
 	skillStateCleanupTTL := envDuration("ISSUE_SKILL_STATE_STALE_TTL", 24*time.Hour)
 	go runSkillStateCleanupScheduler(autopilotCtx, queries, skillStateCleanupTTL)
+	// PUL-445 retention: archive read+not-yet-archived inbox_item rows
+	// older than TTL (default 14d; INBOX_RETENTION_TTL overrides). Runs
+	// hourly. The paginated /api/inbox handler already caps first-paint,
+	// but bounded retention keeps the underlying table proportional to
+	// active-workflow items rather than growing forever with historical
+	// noise a user has already dismissed via read.
+	inboxCleanupTTL := envDuration("INBOX_RETENTION_TTL", 14*24*time.Hour)
+	go runInboxCleanupScheduler(autopilotCtx, queries, inboxCleanupTTL)
 	go runDBStatsLogger(sweepCtx, pool)
 
 	// PUL-166 github outbound poller. Replaces the inbound webhook
