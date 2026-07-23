@@ -263,6 +263,7 @@ type GithubPollCursor struct {
 	LastEventID  pgtype.Int8        `json:"last_event_id"`
 	LastPolledAt pgtype.Timestamptz `json:"last_polled_at"`
 	Etag         pgtype.Text        `json:"etag"`
+	CursorByType []byte             `json:"cursor_by_type"`
 }
 
 type InboxItem struct {
