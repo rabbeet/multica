@@ -124,6 +124,52 @@ SELECT * FROM issue
 WHERE parent_issue_id = $1
 ORDER BY position ASC, created_at DESC;
 
+-- name: ListIssuesBoard :many
+-- PUL-468: one-shot bucket-list — returns up to $2 issues per requested
+-- status, ordered within each bucket by position ASC, created_at DESC (same
+-- ORDER BY as ListIssues). Replaces the client fetchFirstPages fanout of 10
+-- parallel /api/issues?status=... requests + 10 CountIssues calls. The
+-- unnest+LATERAL form runs one bounded index scan per status against
+-- idx_issue_status (workspace_id, status) and stops at LIMIT $2 per bucket,
+-- so the total row-touch is at most len(statuses) * limit regardless of
+-- workspace size — no post-hoc row_number filtering, no full-status scan.
+SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
+       i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
+       i.parent_issue_id, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id
+FROM unnest(sqlc.arg('statuses')::text[]) AS s(status)
+CROSS JOIN LATERAL (
+    SELECT id, workspace_id, title, description, status, priority,
+           assignee_type, assignee_id, creator_type, creator_id,
+           parent_issue_id, position, due_date, created_at, updated_at, number, project_id
+    FROM issue
+    WHERE workspace_id = $1
+      AND status = s.status
+      AND (sqlc.narg('priority')::text IS NULL OR priority = sqlc.narg('priority'))
+      AND (sqlc.narg('assignee_id')::uuid IS NULL OR assignee_id = sqlc.narg('assignee_id'))
+      AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
+      AND (sqlc.narg('creator_id')::uuid IS NULL OR creator_id = sqlc.narg('creator_id'))
+      AND (sqlc.narg('project_id')::uuid IS NULL OR project_id = sqlc.narg('project_id'))
+    ORDER BY position ASC, created_at DESC
+    LIMIT $2
+) i
+ORDER BY i.status ASC, i.position ASC, i.created_at DESC;
+
+-- name: CountIssuesByStatus :many
+-- PUL-468: per-status counts matching the ListIssuesBoard filter set. One
+-- row per status that has at least one matching issue; the handler fills
+-- 0 for statuses absent from the result. Replaces 10 separate CountIssues
+-- calls with a single GROUP BY status scan.
+SELECT status, count(*)::bigint AS total
+FROM issue
+WHERE workspace_id = $1
+  AND status = ANY(sqlc.arg('statuses')::text[])
+  AND (sqlc.narg('priority')::text IS NULL OR priority = sqlc.narg('priority'))
+  AND (sqlc.narg('assignee_id')::uuid IS NULL OR assignee_id = sqlc.narg('assignee_id'))
+  AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
+  AND (sqlc.narg('creator_id')::uuid IS NULL OR creator_id = sqlc.narg('creator_id'))
+  AND (sqlc.narg('project_id')::uuid IS NULL OR project_id = sqlc.narg('project_id'))
+GROUP BY status;
+
 -- name: GetIssueByOrigin :one
 -- Finds the issue stamped with a specific (origin_type, origin_id) pair.
 -- Used by quick-create completion to deterministically locate the issue

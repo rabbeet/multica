@@ -129,6 +129,66 @@ func (q *Queries) CountIssues(ctx context.Context, arg CountIssuesParams) (int64
 	return count, err
 }
 
+const countIssuesByStatus = `-- name: CountIssuesByStatus :many
+SELECT status, count(*)::bigint AS total
+FROM issue
+WHERE workspace_id = $1
+  AND status = ANY($2::text[])
+  AND ($3::text IS NULL OR priority = $3)
+  AND ($4::uuid IS NULL OR assignee_id = $4)
+  AND ($5::uuid[] IS NULL OR assignee_id = ANY($5::uuid[]))
+  AND ($6::uuid IS NULL OR creator_id = $6)
+  AND ($7::uuid IS NULL OR project_id = $7)
+GROUP BY status
+`
+
+type CountIssuesByStatusParams struct {
+	WorkspaceID pgtype.UUID   `json:"workspace_id"`
+	Statuses    []string      `json:"statuses"`
+	Priority    pgtype.Text   `json:"priority"`
+	AssigneeID  pgtype.UUID   `json:"assignee_id"`
+	AssigneeIds []pgtype.UUID `json:"assignee_ids"`
+	CreatorID   pgtype.UUID   `json:"creator_id"`
+	ProjectID   pgtype.UUID   `json:"project_id"`
+}
+
+type CountIssuesByStatusRow struct {
+	Status string `json:"status"`
+	Total  int64  `json:"total"`
+}
+
+// PUL-468: per-status counts matching the ListIssuesBoard filter set. One
+// row per status that has at least one matching issue; the handler fills
+// 0 for statuses absent from the result. Replaces 10 separate CountIssues
+// calls with a single GROUP BY status scan.
+func (q *Queries) CountIssuesByStatus(ctx context.Context, arg CountIssuesByStatusParams) ([]CountIssuesByStatusRow, error) {
+	rows, err := q.db.Query(ctx, countIssuesByStatus,
+		arg.WorkspaceID,
+		arg.Statuses,
+		arg.Priority,
+		arg.AssigneeID,
+		arg.AssigneeIds,
+		arg.CreatorID,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountIssuesByStatusRow{}
+	for rows.Next() {
+		var i CountIssuesByStatusRow
+		if err := rows.Scan(&i.Status, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createIssue = `-- name: CreateIssue :one
 INSERT INTO issue (
     workspace_id, title, description, status, priority,
@@ -661,6 +721,113 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 	items := []ListIssuesRow{}
 	for rows.Next() {
 		var i ListIssuesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.AssigneeType,
+			&i.AssigneeID,
+			&i.CreatorType,
+			&i.CreatorID,
+			&i.ParentIssueID,
+			&i.Position,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Number,
+			&i.ProjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssuesBoard = `-- name: ListIssuesBoard :many
+SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
+       i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
+       i.parent_issue_id, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id
+FROM unnest($3::text[]) AS s(status)
+CROSS JOIN LATERAL (
+    SELECT id, workspace_id, title, description, status, priority,
+           assignee_type, assignee_id, creator_type, creator_id,
+           parent_issue_id, position, due_date, created_at, updated_at, number, project_id
+    FROM issue
+    WHERE workspace_id = $1
+      AND status = s.status
+      AND ($4::text IS NULL OR priority = $4)
+      AND ($5::uuid IS NULL OR assignee_id = $5)
+      AND ($6::uuid[] IS NULL OR assignee_id = ANY($6::uuid[]))
+      AND ($7::uuid IS NULL OR creator_id = $7)
+      AND ($8::uuid IS NULL OR project_id = $8)
+    ORDER BY position ASC, created_at DESC
+    LIMIT $2
+) i
+ORDER BY i.status ASC, i.position ASC, i.created_at DESC
+`
+
+type ListIssuesBoardParams struct {
+	WorkspaceID pgtype.UUID   `json:"workspace_id"`
+	Limit       int32         `json:"limit"`
+	Statuses    []string      `json:"statuses"`
+	Priority    pgtype.Text   `json:"priority"`
+	AssigneeID  pgtype.UUID   `json:"assignee_id"`
+	AssigneeIds []pgtype.UUID `json:"assignee_ids"`
+	CreatorID   pgtype.UUID   `json:"creator_id"`
+	ProjectID   pgtype.UUID   `json:"project_id"`
+}
+
+type ListIssuesBoardRow struct {
+	ID            pgtype.UUID        `json:"id"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	Title         string             `json:"title"`
+	Description   pgtype.Text        `json:"description"`
+	Status        string             `json:"status"`
+	Priority      string             `json:"priority"`
+	AssigneeType  pgtype.Text        `json:"assignee_type"`
+	AssigneeID    pgtype.UUID        `json:"assignee_id"`
+	CreatorType   string             `json:"creator_type"`
+	CreatorID     pgtype.UUID        `json:"creator_id"`
+	ParentIssueID pgtype.UUID        `json:"parent_issue_id"`
+	Position      float64            `json:"position"`
+	DueDate       pgtype.Timestamptz `json:"due_date"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Number        int32              `json:"number"`
+	ProjectID     pgtype.UUID        `json:"project_id"`
+}
+
+// PUL-468: one-shot bucket-list — returns up to $2 issues per requested
+// status, ordered within each bucket by position ASC, created_at DESC (same
+// ORDER BY as ListIssues). Replaces the client fetchFirstPages fanout of 10
+// parallel /api/issues?status=... requests + 10 CountIssues calls with a
+// single row_number() window scan supported by idx_issue_status
+// (workspace_id, status).
+func (q *Queries) ListIssuesBoard(ctx context.Context, arg ListIssuesBoardParams) ([]ListIssuesBoardRow, error) {
+	rows, err := q.db.Query(ctx, listIssuesBoard,
+		arg.WorkspaceID,
+		arg.Limit,
+		arg.Statuses,
+		arg.Priority,
+		arg.AssigneeID,
+		arg.AssigneeIds,
+		arg.CreatorID,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListIssuesBoardRow{}
+	for rows.Next() {
+		var i ListIssuesBoardRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
