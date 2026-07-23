@@ -1,4 +1,4 @@
-export { ApiClient, ApiError } from "./client";
+export { ApiClient, ApiError, BoardEndpointUnavailableError } from "./client";
 export type {
   ApiClientOptions,
   ImportStarterContentPayload,

@@ -3,6 +3,8 @@ import type {
   CreateIssueRequest,
   UpdateIssueRequest,
   ListIssuesResponse,
+  BoardIssuesParams,
+  BoardIssuesResponse,
   SearchIssuesResponse,
   SearchProjectsResponse,
   UpdateMeRequest,
@@ -93,8 +95,10 @@ import { createRequestId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
 import { parseWithFallback } from "./schema";
 import {
+  BoardIssuesResponseSchema,
   ChildIssuesResponseSchema,
   CommentsListSchema,
+  EMPTY_BOARD_ISSUES_RESPONSE,
   EMPTY_LIST_ISSUES_RESPONSE,
   EMPTY_TIMELINE_PAGE,
   ListIssuesResponseSchema,
@@ -188,6 +192,23 @@ export class ApiError extends Error {
     this.statusText = statusText;
     this.body = body;
   }
+}
+
+/**
+ * PUL-468: sentinel error thrown by {@link ApiClient.boardIssues} when the
+ * server returns 404 for the bucket-list route — either the server pre-dates
+ * the endpoint or MULTICA_ISSUES_BOARD_ENDPOINT is off. Callers catch this
+ * to trigger the legacy per-status fanout without inspecting HTTP internals.
+ */
+export class BoardEndpointUnavailableError extends Error {
+  constructor() {
+    super("bucket-list endpoint unavailable — falling back to legacy fanout");
+    this.name = "BoardEndpointUnavailableError";
+  }
+}
+
+function isNotFoundError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404;
 }
 
 export class ApiClient {
@@ -400,6 +421,40 @@ export class ApiClient {
   }
 
   // Issues
+
+  // PUL-468: bucket-list / board endpoint. One request, one response, all
+  // status buckets. Server gates the route with MULTICA_ISSUES_BOARD_ENDPOINT
+  // and returns 404 when disabled — callers should catch `BoardEndpointUnavailableError`
+  // and fall back to the legacy per-status fanout.
+  async boardIssues(params: BoardIssuesParams): Promise<BoardIssuesResponse> {
+    const search = new URLSearchParams();
+    if (params.limit) search.set("limit", String(params.limit));
+    // Server accepts a comma-separated statuses list. Client-side dedup
+    // reduces payload noise when callers pass BOARD_STATUSES verbatim.
+    const uniqueStatuses = Array.from(new Set(params.statuses));
+    search.set("statuses", uniqueStatuses.join(","));
+    if (params.priority) search.set("priority", params.priority);
+    if (params.assignee_id) search.set("assignee_id", params.assignee_id);
+    if (params.assignee_ids?.length) search.set("assignee_ids", params.assignee_ids.join(","));
+    if (params.creator_id) search.set("creator_id", params.creator_id);
+    if (params.project_id) search.set("project_id", params.project_id);
+    const path = `/api/issues/board?${search}`;
+    try {
+      const raw = await this.fetch<unknown>(path);
+      return parseWithFallback(raw, BoardIssuesResponseSchema, EMPTY_BOARD_ISSUES_RESPONSE, {
+        endpoint: "GET /api/issues/board",
+      });
+    } catch (err) {
+      // Map a bare 404 to a typed error the fallback can pattern-match on
+      // without inspecting HTTP internals at the call site. Any other
+      // error (5xx, network, 4xx≠404) propagates unchanged.
+      if (isNotFoundError(err)) {
+        throw new BoardEndpointUnavailableError();
+      }
+      throw err;
+    }
+  }
+
   async listIssues(params?: ListIssuesParams): Promise<ListIssuesResponse> {
     const search = new URLSearchParams();
     if (params?.limit) search.set("limit", String(params.limit));
@@ -875,6 +930,10 @@ export class ApiClient {
     google_client_id?: string;
     posthog_key?: string;
     posthog_host?: string;
+    // PUL-468: capability flag for the bucket-list endpoint. Absent on
+    // pre-PUL-468 servers — the client MUST treat undefined as "not
+    // supported" to keep the fallback path safe against old backends.
+    issues_board_endpoint?: boolean;
   }> {
     return this.fetch("/api/config");
   }

@@ -59,22 +59,44 @@ vi.mock("../../workspace/workspace-avatar", () => ({
   WorkspaceAvatar: ({ name }: { name: string }) => <span data-testid="workspace-avatar">{name.charAt(0)}</span>,
 }));
 
-// Mock api (queries use api internally)
+// Mock api (queries use api internally). PUL-468: also mock `boardIssues`
+// so it always throws BoardEndpointUnavailableError, forcing fetchFirstPages
+// down the legacy per-status fanout path. This keeps the per-status
+// mockListIssues fixtures below authoritative without introducing a parallel
+// bucket-list fixture set.
 const mockListIssues = vi.hoisted(() => vi.fn().mockResolvedValue({ issues: [], total: 0 }));
+// Vitest hoists `vi.mock` factories above module-level statements, so the
+// error class + its rejection mock have to be hoisted too — otherwise
+// the mock factory runs before the class is initialised.
+const { MockBoardEndpointUnavailableError, mockBoardIssues } = vi.hoisted(() => {
+  class MockBoardEndpointUnavailableError extends Error {
+    constructor() {
+      super("board endpoint unavailable");
+      this.name = "BoardEndpointUnavailableError";
+    }
+  }
+  return {
+    MockBoardEndpointUnavailableError,
+    mockBoardIssues: vi.fn().mockRejectedValue(new MockBoardEndpointUnavailableError()),
+  };
+});
 vi.mock("@multica/core/api", () => ({
   api: {
     listIssues: (...args: any[]) => mockListIssues(...args),
+    boardIssues: (...args: any[]) => mockBoardIssues(...args),
     updateIssue: vi.fn(),
     listMembers: () => Promise.resolve([]),
     listAgents: () => Promise.resolve([]),
   },
   getApi: () => ({
     listIssues: (...args: any[]) => mockListIssues(...args),
+    boardIssues: (...args: any[]) => mockBoardIssues(...args),
     updateIssue: vi.fn(),
     listMembers: () => Promise.resolve([]),
     listAgents: () => Promise.resolve([]),
   }),
   setApiInstance: vi.fn(),
+  BoardEndpointUnavailableError: MockBoardEndpointUnavailableError,
 }));
 
 // Mock issue config
