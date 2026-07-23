@@ -55,6 +55,27 @@ export interface IssueStatusBucket {
 }
 
 /**
+ * PUL-468: params for `GET /api/issues/board` — the one-shot bucket-list
+ * endpoint that replaces the client-side fanout of one request per status.
+ */
+export interface BoardIssuesParams {
+  /** Statuses to bucket over. Server returns every requested status as a key, even when empty. */
+  statuses: string[];
+  /** Max issues per bucket. Server default 50, hard cap 100. */
+  limit?: number;
+  priority?: IssuePriority;
+  assignee_id?: string;
+  assignee_ids?: string[];
+  creator_id?: string;
+  project_id?: string;
+}
+
+/** PUL-468: raw response shape for `GET /api/issues/board`. */
+export interface BoardIssuesResponse {
+  by_status: Record<string, IssueStatusBucket>;
+}
+
+/**
  * Frontend cache shape for the issue list. Data is bucketed by status so
  * each column can paginate independently. Assembled from per-status
  * `api.listIssues` responses by the query functions in `issues/queries.ts`.

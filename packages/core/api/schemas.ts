@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ListIssuesResponse, TimelinePage } from "../types";
+import type { BoardIssuesResponse, ListIssuesResponse, TimelinePage } from "../types";
 
 // ---------------------------------------------------------------------------
 // Schemas for the highest-risk API endpoints — those whose responses drive
@@ -130,6 +130,23 @@ export const ListIssuesResponseSchema = z.object({
 export const EMPTY_LIST_ISSUES_RESPONSE: ListIssuesResponse = {
   issues: [],
   total: 0,
+};
+
+// PUL-468: bucket-list response — one bucket per requested status. The
+// server seeds every requested status as a key even when empty, but the
+// schema still defaults each nested field for defensive parseWithFallback
+// behaviour against a rolling deploy.
+const BoardBucketSchema = z.object({
+  issues: z.array(IssueSchema).default([]),
+  total: z.number().default(0),
+}).loose();
+
+export const BoardIssuesResponseSchema = z.object({
+  by_status: z.record(z.string(), BoardBucketSchema).default({}),
+}).loose();
+
+export const EMPTY_BOARD_ISSUES_RESPONSE: BoardIssuesResponse = {
+  by_status: {},
 };
 
 const SubscriberSchema = z.object({

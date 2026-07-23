@@ -390,6 +390,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Route("/api/issues", func(r chi.Router) {
 				r.Get("/search", h.SearchIssues)
 				r.Get("/child-progress", h.ChildIssueProgress)
+				// PUL-468: bucket-list endpoint. Gated by
+				// MULTICA_ISSUES_BOARD_ENDPOINT — the handler returns 404 when
+				// the flag is off so old-client + new-server hits the same
+				// 404 as new-client + old-server, both of which the client's
+				// fetchFirstPages capability probe treats as "fall back to
+				// the legacy 10-parallel /api/issues?status=... path".
+				r.Get("/board", h.BoardIssues)
 				r.Get("/", h.ListIssues)
 				r.Post("/", h.CreateIssue)
 				r.Post("/quick-create", h.QuickCreateIssue)

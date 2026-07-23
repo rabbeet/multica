@@ -12,6 +12,7 @@ import {
 } from "../analytics";
 import { configStore } from "../config";
 import { workspaceKeys } from "../workspace/queries";
+import { setBoardEndpointSupported } from "../issues/queries";
 import { createLogger } from "../logger";
 import { defaultStorage } from "./storage";
 import { setCurrentWorkspace } from "./workspace-storage";
@@ -54,6 +55,13 @@ export function AuthInitializer({
           allowSignup: cfg.allow_signup,
           googleClientId: cfg.google_client_id,
         });
+        // PUL-468: seed the bucket-list capability so the first mount of
+        // the issues page skips the probe and picks the right path
+        // immediately. `undefined` on pre-PUL-468 servers falls through to
+        // the lazy in-flight probe on the first fetch.
+        if (typeof cfg.issues_board_endpoint === "boolean") {
+          setBoardEndpointSupported(cfg.issues_board_endpoint);
+        }
         if (cfg.posthog_key) {
           initAnalytics({
             key: cfg.posthog_key,

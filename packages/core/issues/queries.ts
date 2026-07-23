@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { api } from "../api";
+import { api, BoardEndpointUnavailableError } from "../api";
 import type {
   IssueStatus,
   ListIssuesParams,
@@ -67,7 +67,47 @@ export function flattenIssueBuckets(data: ListIssuesCache) {
   return out;
 }
 
-async function fetchFirstPages(filter: MyIssuesFilter = {}): Promise<ListIssuesCache> {
+/**
+ * PUL-468 capability memo. `undefined` = not yet detected; `true`/`false` =
+ * server's advertised capability, learned either from `/api/config`
+ * (see auth-initializer) or lazily from a first-fetch 404 on the new
+ * endpoint. Module-scoped so every subsequent fetch on the same page
+ * session takes the same path — no repeated probes.
+ *
+ * Exported setter lets the auth-initializer seed the flag from the
+ * `/api/config` `issues_board_endpoint` field before the user ever mounts
+ * the issues page, which avoids the first-time 404 round-trip on servers
+ * that have the flag off.
+ */
+let boardEndpointSupported: boolean | undefined = undefined;
+
+/** Test hook + auth-initializer seed. Not part of the public API surface. */
+export function setBoardEndpointSupported(supported: boolean | undefined): void {
+  boardEndpointSupported = supported;
+}
+
+/** Test-only accessor for the capability memo. */
+export function getBoardEndpointSupported(): boolean | undefined {
+  return boardEndpointSupported;
+}
+
+async function fetchFirstPagesBoard(filter: MyIssuesFilter = {}): Promise<ListIssuesCache> {
+  const board = await api.boardIssues({
+    statuses: PAGINATED_STATUSES as unknown as string[],
+    limit: ISSUE_PAGE_SIZE,
+    ...filter,
+  });
+  const byStatus: ListIssuesCache["byStatus"] = {};
+  for (const status of PAGINATED_STATUSES) {
+    const bucket = board.by_status[status];
+    byStatus[status] = bucket
+      ? { issues: bucket.issues, total: bucket.total }
+      : { issues: [], total: 0 };
+  }
+  return { byStatus };
+}
+
+async function fetchFirstPagesLegacy(filter: MyIssuesFilter = {}): Promise<ListIssuesCache> {
   const responses = await Promise.all(
     PAGINATED_STATUSES.map((status) =>
       api.listIssues({ status, limit: ISSUE_PAGE_SIZE, offset: 0, ...filter }),
@@ -79,6 +119,26 @@ async function fetchFirstPages(filter: MyIssuesFilter = {}): Promise<ListIssuesC
     byStatus[status] = { issues: res.issues, total: res.total };
   });
   return { byStatus };
+}
+
+async function fetchFirstPages(filter: MyIssuesFilter = {}): Promise<ListIssuesCache> {
+  // If /api/config already told us the endpoint is off, skip the probe.
+  if (boardEndpointSupported === false) {
+    return fetchFirstPagesLegacy(filter);
+  }
+  try {
+    const cache = await fetchFirstPagesBoard(filter);
+    boardEndpointSupported = true;
+    return cache;
+  } catch (err) {
+    if (err instanceof BoardEndpointUnavailableError) {
+      // First-time probe: server is old or has the flag off. Remember and
+      // fall back — subsequent fetches skip the probe entirely.
+      boardEndpointSupported = false;
+      return fetchFirstPagesLegacy(filter);
+    }
+    throw err;
+  }
 }
 
 /**

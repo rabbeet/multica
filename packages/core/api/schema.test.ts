@@ -166,6 +166,34 @@ describe("ApiClient schema fallback", () => {
       expect(res).toEqual({ issues: [] });
     });
   });
+
+  // PUL-468: bucket-list endpoint.
+  describe("boardIssues", () => {
+    it("returns the empty envelope when the body is malformed", async () => {
+      // `by_status` having the wrong type triggers the fallback.
+      stubFetchJson({ by_status: "not-an-object" });
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.boardIssues({ statuses: ["todo"] });
+      expect(res).toEqual({ by_status: {} });
+    });
+
+    it("throws BoardEndpointUnavailableError on a 404 so callers can fall back", async () => {
+      stubFetchJson({ error: "endpoint not enabled" }, 404);
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.boardIssues({ statuses: ["todo"] })).rejects.toMatchObject({
+        name: "BoardEndpointUnavailableError",
+      });
+    });
+
+    it("propagates non-404 errors unchanged (no fallback for 500s)", async () => {
+      stubFetchJson({ error: "boom" }, 500);
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.boardIssues({ statuses: ["todo"] })).rejects.toMatchObject({
+        name: "ApiError",
+        status: 500,
+      });
+    });
+  });
 });
 
 // Direct tests for the helper, decoupled from any specific endpoint —

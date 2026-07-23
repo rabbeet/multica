@@ -20,6 +20,14 @@ type AppConfig struct {
 	// disable frontend event shipping too.
 	PosthogKey  string `json:"posthog_key"`
 	PosthogHost string `json:"posthog_host"`
+
+	// PUL-468: capability flags. The client uses these to pick the fast
+	// path (bucket-list endpoint) when the server supports it and fall
+	// back to the legacy per-status fanout otherwise, without probing
+	// unknown endpoints. Field names go here rather than under an
+	// arbitrary "features" object so future capability toggles stay flat
+	// and JSON-comparable.
+	IssuesBoardEndpoint bool `json:"issues_board_endpoint"`
 }
 
 // GetConfig is mounted on the public (unauthenticated) route group because
@@ -28,8 +36,9 @@ type AppConfig struct {
 // to anonymous callers — never user- or tenant-scoped data.
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	config := AppConfig{
-		AllowSignup:    os.Getenv("ALLOW_SIGNUP") != "false",
-		GoogleClientID: os.Getenv("GOOGLE_CLIENT_ID"),
+		AllowSignup:         os.Getenv("ALLOW_SIGNUP") != "false",
+		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
+		IssuesBoardEndpoint: IsBoardEndpointEnabled(),
 	}
 	if h.Storage != nil {
 		config.CdnDomain = h.Storage.CdnDomain()
