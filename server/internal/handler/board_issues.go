@@ -213,12 +213,23 @@ func (h *Handler) BoardIssues(w http.ResponseWriter, r *http.Request) {
 // parseBoardStatuses splits a comma-separated statuses list and validates
 // non-empty + within-cap. Returns (nil, false) with the appropriate 400
 // already written on w when validation fails.
+//
+// The cap is enforced on the RAW comma-separated count BEFORE dedup so a
+// client blasting `statuses=todo,todo,todo,...` (100k) cannot bypass the
+// bound just because everything collapses to one entry — the ceiling
+// bounds server-side split/trim/dedup work, not the semantic set size.
+// The client's own boardIssues() already dedups on send, so a legitimate
+// caller never hits this cap.
 func parseBoardStatuses(w http.ResponseWriter, raw string) ([]string, bool) {
 	if raw == "" {
 		writeError(w, http.StatusBadRequest, "statuses is required (comma-separated)")
 		return nil, false
 	}
 	parts := strings.Split(raw, ",")
+	if len(parts) > boardMaxStatuses {
+		writeError(w, http.StatusBadRequest, "too many statuses (max 20)")
+		return nil, false
+	}
 	out := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, s := range parts {
@@ -234,10 +245,6 @@ func parseBoardStatuses(w http.ResponseWriter, raw string) ([]string, bool) {
 	}
 	if len(out) == 0 {
 		writeError(w, http.StatusBadRequest, "statuses must contain at least one value")
-		return nil, false
-	}
-	if len(out) > boardMaxStatuses {
-		writeError(w, http.StatusBadRequest, "too many statuses (max 20)")
 		return nil, false
 	}
 	return out, true

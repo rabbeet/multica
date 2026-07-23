@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -39,20 +40,37 @@ func TestBoardIssues_MissingStatuses(t *testing.T) {
 func TestBoardIssues_TooManyStatuses(t *testing.T) {
 	t.Setenv(boardEnvFlag, "on")
 
-	// 21 comma-separated statuses — over the boardMaxStatuses (20) cap.
-	statuses := ""
+	// The cap is applied to the RAW comma-separated count before dedup, so
+	// 21 identical entries (which would dedup to 1) must still 400. This
+	// closes the "just send 100k dupes" DoS surface the earlier
+	// dedup-first form left open.
+	dupes := ""
 	for i := 0; i < 21; i++ {
 		if i > 0 {
-			statuses += ","
+			dupes += ","
 		}
-		statuses += "s"
+		dupes += "s"
 	}
 	w := httptest.NewRecorder()
-	req := newRequest("GET", "/api/issues/board?statuses="+statuses, nil)
+	req := newRequest("GET", "/api/issues/board?statuses="+dupes, nil)
 	testHandler.BoardIssues(w, req)
-
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 when >boardMaxStatuses, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("21 duplicate statuses: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 21 distinct statuses over the cap — same 400.
+	distinct := ""
+	for i := 0; i < 21; i++ {
+		if i > 0 {
+			distinct += ","
+		}
+		distinct += fmt.Sprintf("s%d", i)
+	}
+	w = httptest.NewRecorder()
+	req = newRequest("GET", "/api/issues/board?statuses="+distinct, nil)
+	testHandler.BoardIssues(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("21 distinct statuses: expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
