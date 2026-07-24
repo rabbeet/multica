@@ -522,6 +522,28 @@ type TaskUsage struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
 
+type TelegramOutbox struct {
+	ID          int64              `json:"id"`
+	Kind        string             `json:"kind"`
+	IssueID     pgtype.UUID        `json:"issue_id"`
+	CommentID   pgtype.UUID        `json:"comment_id"`
+	Payload     []byte             `json:"payload"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	NotBeforeAt pgtype.Timestamptz `json:"not_before_at"`
+	ClaimedAt   pgtype.Timestamptz `json:"claimed_at"`
+	RetryCount  int32              `json:"retry_count"`
+	FailedAt    pgtype.Timestamptz `json:"failed_at"`
+	LastError   pgtype.Text        `json:"last_error"`
+}
+
+type TelegramThread struct {
+	IssueID         pgtype.UUID        `json:"issue_id"`
+	ChatID          int64              `json:"chat_id"`
+	MessageThreadID int32              `json:"message_thread_id"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ClosedAt        pgtype.Timestamptz `json:"closed_at"`
+}
+
 type User struct {
 	ID                      pgtype.UUID        `json:"id"`
 	Name                    string             `json:"name"`

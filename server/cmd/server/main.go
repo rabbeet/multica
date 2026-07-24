@@ -341,6 +341,14 @@ func main() {
 	// transactional path.
 	commentSvc := service.NewCommentService(queries, pool)
 
+	// PUL-479 outbound Telegram bridge. wireTelegramOutbound reads
+	// MULTICA_TELEGRAM_* env vars, plugs the enqueuer into commentSvc
+	// (so every comment INSERT also writes a telegram_outbox row in
+	// the same tx), and returns the scheduler that drains that outbox
+	// every 2s. Returns nil when the feature flag is off — the
+	// runTelegramOutboundScheduler goroutine below is then a no-op.
+	telegramSched := wireTelegramOutbound(autopilotCtx, queries, commentSvc)
+
 	// Construct a LivenessStore that mirrors the one wired into the HTTP
 	// handler. Both the heartbeat write path (handler) and the sweeper read
 	// path (here) must agree on the same Redis-or-Noop choice; if they
@@ -359,6 +367,9 @@ func main() {
 	// PUL-164 child-progress fan-out worker. Shares autopilotCtx so it shuts
 	// down with the rest of the schedulers on server stop.
 	go runChildProgressScheduler(autopilotCtx, queries, bus, commentSvc)
+	// PUL-479 outbound Telegram bridge worker. No-op when telegramSched
+	// is nil (feature flag off).
+	go runTelegramOutboundScheduler(autopilotCtx, telegramSched)
 	// PUL-182 TTL cleanup for stale issue_skill_state in_progress rows.
 	// Default 24h; ISSUE_SKILL_STATE_STALE_TTL overrides (e.g. "1h" on
 	// staging). Shares autopilotCtx with the rest of the schedulers.
