@@ -29,10 +29,38 @@ import (
 type CommentService struct {
 	Queries   *db.Queries
 	TxStarter TxStarter
+
+	// PUL-479: when telegramOutbox is non-nil, Create INSERTs a
+	// telegram_outbox row inside the same tx as the comment INSERT so
+	// the outbound mirror is atomic with the comment itself. Wired
+	// only when MULTICA_TELEGRAM_ENABLED=true; nil-check makes the
+	// feature-flag-off path a compile-time no-op.
+	telegramOutbox TelegramOutboxEnqueuer
+}
+
+// TelegramOutboxEnqueuer is the tx-scoped surface CommentService needs
+// from the outbound bridge. *db.Queries.WithTx(...) provides it in
+// production (via InsertTelegramOutboxRow); tests substitute a fake.
+// Kept as an interface (not a concrete function) so future kinds
+// (status_change / assignee_change) can plug into the same seam.
+type TelegramOutboxEnqueuer interface {
+	// EnqueueComment writes one 'comment' row to telegram_outbox. Ctx
+	// must be the same context the caller's tx is scoped to; qtx must
+	// be the *db.Queries bound to that tx (so the INSERT commits with
+	// the surrounding tx). authorLabel is the display name that
+	// appears in the Telegram header line ("PUL-479 · <label>").
+	EnqueueComment(ctx context.Context, qtx *db.Queries, issueID, commentID pgtype.UUID, identifier, authorLabel, content string) error
 }
 
 func NewCommentService(q *db.Queries, tx TxStarter) *CommentService {
 	return &CommentService{Queries: q, TxStarter: tx}
+}
+
+// SetTelegramOutbox enables the outbound mirror. Callers should invoke
+// this once at startup after constructing the enqueuer. Passing nil
+// disables the mirror (used by tests that want a bare CommentService).
+func (s *CommentService) SetTelegramOutbox(enq TelegramOutboxEnqueuer) {
+	s.telegramOutbox = enq
 }
 
 // CommentCreateParams is the input to CommentService.Create.
@@ -204,6 +232,25 @@ func (s *CommentService) Create(ctx context.Context, p CommentCreateParams) (Com
 			return empty, ErrCommentAlreadyExists
 		}
 		return empty, fmt.Errorf("insert comment: %w", err)
+	}
+
+	// PUL-479 outbound Telegram mirror. Only user-visible comment
+	// types get mirrored; system / status_change / progress_update /
+	// wake_up / child_progress are internal signalling and stay
+	// silent (mirror'ing them would spam the topic). If enqueue
+	// fails, roll the whole tx back — we prefer a visible 5xx over
+	// a comment that lands in multica without its Telegram twin.
+	//
+	// We pass identifier="" here (the topic name already includes
+	// "PUL-N · title", so per-message headers stay short). The scheduler
+	// resolves the author display label from author_type at send time.
+	if s.telegramOutbox != nil && p.Type == "comment" {
+		if enqErr := s.telegramOutbox.EnqueueComment(
+			ctx, qtx, lockedIssue.ID, comment.ID,
+			"", p.AuthorType, p.Content,
+		); enqErr != nil {
+			return empty, fmt.Errorf("enqueue telegram outbox: %w", enqErr)
+		}
 	}
 
 	updatedIssue := lockedIssue
