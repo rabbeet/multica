@@ -12,7 +12,9 @@
   "list": {
     "empty": "No notifications",
     "mark_done_tooltip": "Mark as done",
-    "archive_tooltip": "Archive"
+    "archive_tooltip": "Archive",
+    "load_more": "Load more",
+    "loading_more": "Loading…"
   },
   "detail": {
     "select_prompt": "Select a notification to view details",

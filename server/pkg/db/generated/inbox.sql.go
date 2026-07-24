@@ -152,8 +152,16 @@ func (q *Queries) ArchiveInboxItem(ctx context.Context, id pgtype.UUID) (InboxIt
 }
 
 const countUnreadInbox = `-- name: CountUnreadInbox :one
-SELECT count(*) FROM inbox_item
-WHERE workspace_id = $1 AND recipient_type = $2 AND recipient_id = $3 AND read = false AND archived = false
+WITH representatives AS (
+    SELECT DISTINCT ON (COALESCE(issue_id, id)) read
+    FROM inbox_item
+    WHERE workspace_id = $1
+      AND recipient_type = $2
+      AND recipient_id = $3
+      AND archived = false
+    ORDER BY COALESCE(issue_id, id), created_at DESC
+)
+SELECT count(*) FROM representatives WHERE read = false
 `
 
 type CountUnreadInboxParams struct {
@@ -162,6 +170,12 @@ type CountUnreadInboxParams struct {
 	RecipientID   pgtype.UUID `json:"recipient_id"`
 }
 
+// PUL-481 dedupes by COALESCE(issue_id, id) to match the UI's list
+// semantics: an issue with three unread notifications shows as one row
+// and counts once against the badge. Prior to this change the server
+// counted individual rows while the client counted dedup'd reps, so
+// the badge and the API disagreed for any user with sibling
+// notifications on the same issue (PUL-39 for archive was symmetric).
 func (q *Queries) CountUnreadInbox(ctx context.Context, arg CountUnreadInboxParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countUnreadInbox, arg.WorkspaceID, arg.RecipientType, arg.RecipientID)
 	var count int64
@@ -289,7 +303,22 @@ func (q *Queries) GetInboxItemInWorkspace(ctx context.Context, arg GetInboxItemI
 }
 
 const listInboxItems = `-- name: ListInboxItems :many
-WITH latest_skills AS (
+WITH representatives AS (
+    SELECT DISTINCT ON (COALESCE(rep.issue_id, rep.id))
+        rep.id, rep.created_at
+    FROM inbox_item rep
+    WHERE rep.workspace_id = $1
+      AND rep.recipient_type = $2
+      AND rep.recipient_id = $3
+      AND rep.archived = false
+    ORDER BY COALESCE(rep.issue_id, rep.id), rep.created_at DESC
+),
+page AS (
+    SELECT id, created_at FROM representatives
+    ORDER BY created_at DESC, id DESC
+    LIMIT $4::int
+),
+latest_skills AS (
     SELECT DISTINCT ON (issue_id)
         issue_id,
         skill_slug,
@@ -344,20 +373,21 @@ SELECT i.id, i.workspace_id, i.recipient_type, i.recipient_id, i.type, i.severit
        at.started_at    AS active_task_started_at,
        lst.last_status_at,
        lc.last_comment_at
-FROM inbox_item i
+FROM page p
+JOIN inbox_item i ON i.id = p.id
 LEFT JOIN issue iss ON iss.id = i.issue_id
 LEFT JOIN latest_skills ls ON ls.issue_id = i.issue_id
 LEFT JOIN active_tasks  at ON at.issue_id = i.issue_id
 LEFT JOIN last_status   lst ON lst.issue_id = i.issue_id
 LEFT JOIN last_comment  lc  ON lc.issue_id = i.issue_id
-WHERE i.workspace_id = $1 AND i.recipient_type = $2 AND i.recipient_id = $3 AND i.archived = false
-ORDER BY i.created_at DESC
+ORDER BY i.created_at DESC, i.id DESC
 `
 
 type ListInboxItemsParams struct {
 	WorkspaceID   pgtype.UUID `json:"workspace_id"`
 	RecipientType string      `json:"recipient_type"`
 	RecipientID   pgtype.UUID `json:"recipient_id"`
+	Lim           int32       `json:"lim"`
 }
 
 type ListInboxItemsRow struct {
@@ -392,6 +422,8 @@ type ListInboxItemsRow struct {
 	LastCommentAt          pgtype.Timestamptz `json:"last_comment_at"`
 }
 
+// Latest page of dedup'd inbox rows for a recipient, newest first.
+//
 // PUL-177 added the phase + last-applied-skill chips. PUL-180 adds the
 // third Inbox chip — ownership ("me" | "agent" | "waiting") — derived
 // server-side from three additional signals joined per issue:
@@ -419,8 +451,22 @@ type ListInboxItemsRow struct {
 // the underlying NOT NULL column type and breaks Scan() on legacy
 // issues. The DISTINCT ON form is index-driven by the three indices
 // above.
+//
+// PUL-481 added server-side dedup + LIMIT. Historically this returned
+// every non-archived inbox_item and let the client dedupe — active
+// accounts pushed the payload past 13 MB (3716 items for vadim, iOS
+// Safari crashed). Dedup now happens in the `representatives` CTE by
+// COALESCE(issue_id, id): one row per issue (or per standalone item
+// when issue_id is NULL), matching the UI's list semantics. The
+// ArchiveAllReadInbox / ArchiveCompletedInbox mutations already used
+// the same key — this brings ListInboxItems into alignment.
 func (q *Queries) ListInboxItems(ctx context.Context, arg ListInboxItemsParams) ([]ListInboxItemsRow, error) {
-	rows, err := q.db.Query(ctx, listInboxItems, arg.WorkspaceID, arg.RecipientType, arg.RecipientID)
+	rows, err := q.db.Query(ctx, listInboxItems,
+		arg.WorkspaceID,
+		arg.RecipientType,
+		arg.RecipientID,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -428,6 +474,178 @@ func (q *Queries) ListInboxItems(ctx context.Context, arg ListInboxItemsParams) 
 	items := []ListInboxItemsRow{}
 	for rows.Next() {
 		var i ListInboxItemsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.RecipientType,
+			&i.RecipientID,
+			&i.Type,
+			&i.Severity,
+			&i.IssueID,
+			&i.Title,
+			&i.Body,
+			&i.Read,
+			&i.Archived,
+			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.Details,
+			&i.IssueStatus,
+			&i.IssueUpdatedAt,
+			&i.LatestSkillSlug,
+			&i.LatestSkillStatus,
+			&i.LatestSkillStartedAt,
+			&i.LatestSkillCompletedAt,
+			&i.LatestSkillUpdatedAt,
+			&i.ActiveTaskAgentID,
+			&i.ActiveTaskAgentName,
+			&i.ActiveTaskStatus,
+			&i.ActiveTaskDispatchedAt,
+			&i.ActiveTaskStartedAt,
+			&i.LastStatusAt,
+			&i.LastCommentAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInboxItemsBefore = `-- name: ListInboxItemsBefore :many
+WITH representatives AS (
+    SELECT DISTINCT ON (COALESCE(rep.issue_id, rep.id))
+        rep.id, rep.created_at
+    FROM inbox_item rep
+    WHERE rep.workspace_id = $1
+      AND rep.recipient_type = $2
+      AND rep.recipient_id = $3
+      AND rep.archived = false
+    ORDER BY COALESCE(rep.issue_id, rep.id), rep.created_at DESC
+),
+page AS (
+    SELECT id, created_at FROM representatives
+    WHERE (created_at, id) < ($4::timestamptz, $5::uuid)
+    ORDER BY created_at DESC, id DESC
+    LIMIT $6::int
+),
+latest_skills AS (
+    SELECT DISTINCT ON (issue_id)
+        issue_id, skill_slug, status, started_at, completed_at, updated_at
+    FROM issue_skill_state
+    ORDER BY issue_id, updated_at DESC
+),
+active_tasks AS (
+    SELECT DISTINCT ON (atq.issue_id)
+        atq.issue_id, atq.agent_id, a.name AS agent_name,
+        atq.status, atq.dispatched_at, atq.started_at
+    FROM agent_task_queue atq
+    JOIN agent a ON a.id = atq.agent_id
+    WHERE atq.status IN ('queued', 'dispatched', 'running')
+      AND atq.issue_id IS NOT NULL
+    ORDER BY atq.issue_id, atq.created_at DESC
+),
+last_status AS (
+    SELECT DISTINCT ON (issue_id)
+        issue_id, created_at AS last_status_at
+    FROM issue_status_history
+    ORDER BY issue_id, created_at DESC
+),
+last_comment AS (
+    SELECT DISTINCT ON (issue_id)
+        issue_id, created_at AS last_comment_at
+    FROM comment
+    WHERE type = 'comment'
+    ORDER BY issue_id, created_at DESC
+)
+SELECT i.id, i.workspace_id, i.recipient_type, i.recipient_id, i.type, i.severity, i.issue_id, i.title, i.body, i.read, i.archived, i.created_at, i.actor_type, i.actor_id, i.details,
+       iss.status     AS issue_status,
+       iss.updated_at AS issue_updated_at,
+       ls.skill_slug   AS latest_skill_slug,
+       ls.status       AS latest_skill_status,
+       ls.started_at   AS latest_skill_started_at,
+       ls.completed_at AS latest_skill_completed_at,
+       ls.updated_at   AS latest_skill_updated_at,
+       at.agent_id      AS active_task_agent_id,
+       at.agent_name    AS active_task_agent_name,
+       at.status        AS active_task_status,
+       at.dispatched_at AS active_task_dispatched_at,
+       at.started_at    AS active_task_started_at,
+       lst.last_status_at,
+       lc.last_comment_at
+FROM page p
+JOIN inbox_item i ON i.id = p.id
+LEFT JOIN issue iss ON iss.id = i.issue_id
+LEFT JOIN latest_skills ls ON ls.issue_id = i.issue_id
+LEFT JOIN active_tasks  at ON at.issue_id = i.issue_id
+LEFT JOIN last_status   lst ON lst.issue_id = i.issue_id
+LEFT JOIN last_comment  lc  ON lc.issue_id = i.issue_id
+ORDER BY i.created_at DESC, i.id DESC
+`
+
+type ListInboxItemsBeforeParams struct {
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	RecipientType string             `json:"recipient_type"`
+	RecipientID   pgtype.UUID        `json:"recipient_id"`
+	Column4       pgtype.Timestamptz `json:"column_4"`
+	Column5       pgtype.UUID        `json:"column_5"`
+	Lim           int32              `json:"lim"`
+}
+
+type ListInboxItemsBeforeRow struct {
+	ID                     pgtype.UUID        `json:"id"`
+	WorkspaceID            pgtype.UUID        `json:"workspace_id"`
+	RecipientType          string             `json:"recipient_type"`
+	RecipientID            pgtype.UUID        `json:"recipient_id"`
+	Type                   string             `json:"type"`
+	Severity               string             `json:"severity"`
+	IssueID                pgtype.UUID        `json:"issue_id"`
+	Title                  string             `json:"title"`
+	Body                   pgtype.Text        `json:"body"`
+	Read                   bool               `json:"read"`
+	Archived               bool               `json:"archived"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	ActorType              pgtype.Text        `json:"actor_type"`
+	ActorID                pgtype.UUID        `json:"actor_id"`
+	Details                []byte             `json:"details"`
+	IssueStatus            pgtype.Text        `json:"issue_status"`
+	IssueUpdatedAt         pgtype.Timestamptz `json:"issue_updated_at"`
+	LatestSkillSlug        pgtype.Text        `json:"latest_skill_slug"`
+	LatestSkillStatus      pgtype.Text        `json:"latest_skill_status"`
+	LatestSkillStartedAt   pgtype.Timestamptz `json:"latest_skill_started_at"`
+	LatestSkillCompletedAt pgtype.Timestamptz `json:"latest_skill_completed_at"`
+	LatestSkillUpdatedAt   pgtype.Timestamptz `json:"latest_skill_updated_at"`
+	ActiveTaskAgentID      pgtype.UUID        `json:"active_task_agent_id"`
+	ActiveTaskAgentName    pgtype.Text        `json:"active_task_agent_name"`
+	ActiveTaskStatus       pgtype.Text        `json:"active_task_status"`
+	ActiveTaskDispatchedAt pgtype.Timestamptz `json:"active_task_dispatched_at"`
+	ActiveTaskStartedAt    pgtype.Timestamptz `json:"active_task_started_at"`
+	LastStatusAt           pgtype.Timestamptz `json:"last_status_at"`
+	LastCommentAt          pgtype.Timestamptz `json:"last_comment_at"`
+}
+
+// Older page: same row shape as ListInboxItems, scoped to representatives
+// strictly older than the given (created_at, id) keyset cursor. PUL-481
+// adds infinite-scroll for accounts with more than one page of inbox.
+func (q *Queries) ListInboxItemsBefore(ctx context.Context, arg ListInboxItemsBeforeParams) ([]ListInboxItemsBeforeRow, error) {
+	rows, err := q.db.Query(ctx, listInboxItemsBefore,
+		arg.WorkspaceID,
+		arg.RecipientType,
+		arg.RecipientID,
+		arg.Column4,
+		arg.Column5,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInboxItemsBeforeRow{}
+	for rows.Next() {
+		var i ListInboxItemsBeforeRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,

@@ -807,9 +807,11 @@ type ListIssuesBoardRow struct {
 // PUL-468: one-shot bucket-list — returns up to $2 issues per requested
 // status, ordered within each bucket by position ASC, created_at DESC (same
 // ORDER BY as ListIssues). Replaces the client fetchFirstPages fanout of 10
-// parallel /api/issues?status=... requests + 10 CountIssues calls with a
-// single row_number() window scan supported by idx_issue_status
-// (workspace_id, status).
+// parallel /api/issues?status=... requests + 10 CountIssues calls. The
+// unnest+LATERAL form runs one bounded index scan per status against
+// idx_issue_status (workspace_id, status) and stops at LIMIT $2 per bucket,
+// so the total row-touch is at most len(statuses) * limit regardless of
+// workspace size — no post-hoc row_number filtering, no full-status scan.
 func (q *Queries) ListIssuesBoard(ctx context.Context, arg ListIssuesBoardParams) ([]ListIssuesBoardRow, error) {
 	rows, err := q.db.Query(ctx, listIssuesBoard,
 		arg.WorkspaceID,

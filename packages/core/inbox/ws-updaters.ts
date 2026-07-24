@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { inboxKeys } from "./queries";
-import type { InboxItem, IssueStatus } from "../types";
+import { inboxKeys, type InboxCacheData } from "./queries";
+import type { InboxItem, InboxListPage, IssueStatus } from "../types";
 
 export function onInboxNew(
   qc: QueryClient,
@@ -8,8 +8,10 @@ export function onInboxNew(
   _item: InboxItem,
 ) {
   // Use invalidateQueries instead of setQueryData — triggers a refetch that
-  // reliably notifies all observers. The inbox list is small so this is cheap.
+  // reliably notifies all observers. The paginated list refetch is bounded
+  // (INBOX_PAGE_SIZE) so this stays cheap even for active accounts (PUL-481).
   qc.invalidateQueries({ queryKey: inboxKeys.list(wsId) });
+  qc.invalidateQueries({ queryKey: inboxKeys.unreadCount(wsId) });
 }
 
 export function onInboxIssueStatusChanged(
@@ -18,10 +20,18 @@ export function onInboxIssueStatusChanged(
   issueId: string,
   status: IssueStatus,
 ) {
-  qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), (old) =>
-    old?.map((i) =>
-      i.issue_id === issueId ? { ...i, issue_status: status } : i,
-    ),
+  qc.setQueryData<InboxCacheData>(inboxKeys.list(wsId), (old) =>
+    old
+      ? {
+          ...old,
+          pages: old.pages.map<InboxListPage>((page) => ({
+            ...page,
+            items: page.items.map((i) =>
+              i.issue_id === issueId ? { ...i, issue_status: status } : i,
+            ),
+          })),
+        }
+      : old,
   );
 }
 
@@ -33,11 +43,21 @@ export function onInboxIssueDeleted(
   wsId: string,
   issueId: string,
 ) {
-  qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), (old) =>
-    old?.filter((i) => i.issue_id !== issueId),
+  qc.setQueryData<InboxCacheData>(inboxKeys.list(wsId), (old) =>
+    old
+      ? {
+          ...old,
+          pages: old.pages.map<InboxListPage>((page) => ({
+            ...page,
+            items: page.items.filter((i) => i.issue_id !== issueId),
+          })),
+        }
+      : old,
   );
+  qc.invalidateQueries({ queryKey: inboxKeys.unreadCount(wsId) });
 }
 
 export function onInboxInvalidate(qc: QueryClient, wsId: string) {
   qc.invalidateQueries({ queryKey: inboxKeys.list(wsId) });
+  qc.invalidateQueries({ queryKey: inboxKeys.unreadCount(wsId) });
 }

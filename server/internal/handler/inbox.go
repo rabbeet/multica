@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +14,33 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
+
+// PUL-481: /api/inbox pagination limits. Historically the endpoint
+// returned every non-archived inbox_item and the client deduped +
+// rendered, which pushed active-account payloads past 13 MB and
+// crashed iOS Safari. We now cap responses at inboxMaxLimit and
+// support keyset (?before=) pagination for older pages. Legacy
+// callers (Multica.app builds predating the change) still get a
+// bounded array response — see ListInbox for the shape switch.
+const (
+	inboxDefaultLimit = 100
+	inboxMaxLimit     = 200
+	// inboxLegacyCap bounds the array-shape response served to clients
+	// that didn't send any pagination params. Matches the timeline
+	// legacyTimelineCap approach (server/internal/handler/activity.go).
+	inboxLegacyCap = 200
+)
+
+// InboxListResponse wraps a paginated slice of inbox items. Items are
+// sorted newest-first; NextCursor is opaque and passed back as
+// ?before=<cursor>. HasMore is a defensive convenience so the client
+// doesn't have to check `next_cursor != null && items.length > 0`
+// separately — the two agree, but the flag is what UIs typically read.
+type InboxListResponse struct {
+	Items      []InboxItemResponse `json:"items"`
+	NextCursor *string             `json:"next_cursor"`
+	HasMore    bool                `json:"has_more"`
+}
 
 type InboxItemResponse struct {
 	ID            string          `json:"id"`
@@ -379,6 +407,29 @@ func (h *Handler) enrichInboxResponse(ctx context.Context, resp InboxItemRespons
 	return resp
 }
 
+// inboxRowBeforeToResponse mirrors inboxRowToResponse for the second
+// sqlc-generated row type returned by ListInboxItemsBefore. The two row
+// structs are field-identical (same JOIN shape) but sqlc emits a
+// distinct type per query, and Go's struct-conversion rules make the
+// direct cast the simplest bridge — see PUL-481.
+func inboxRowBeforeToResponse(r db.ListInboxItemsBeforeRow) InboxItemResponse {
+	return inboxRowToResponse(db.ListInboxItemsRow(r))
+}
+
+// ListInbox returns the recipient's inbox, newest first.
+//
+// PUL-481 introduced two shape modes:
+//
+//   - Legacy (no ?limit and no ?before): array-of-items, capped at
+//     inboxLegacyCap. Keeps Multica.app ≤ v0.2.25 alive — the desktop
+//     shell reads the body as InboxItem[] directly and would crash on
+//     the wrapped shape. Drop this branch once the auto-update fleet
+//     has rolled past the matching desktop release (mirrors the
+//     timeline #2128 migration).
+//   - Paginated (any pagination param present): InboxListResponse with
+//     server-side dedup by COALESCE(issue_id, id), keyset ?before=
+//     cursor for older pages, and next_cursor / has_more for the
+//     client's fetch-next-page decision.
 func (h *Handler) ListInbox(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -390,21 +441,119 @@ func (h *Handler) ListInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := h.Queries.ListInboxItems(r.Context(), db.ListInboxItemsParams{
+	q := r.URL.Query()
+	limitRaw, beforeRaw := q.Get("limit"), q.Get("before")
+
+	if limitRaw == "" && beforeRaw == "" {
+		h.listInboxLegacy(w, r, wsUUID, userID)
+		return
+	}
+
+	limit := inboxDefaultLimit
+	if limitRaw != "" {
+		n, err := strconv.Atoi(limitRaw)
+		if err != nil || n <= 0 {
+			writeError(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		if n > inboxMaxLimit {
+			writeError(w, http.StatusBadRequest, "limit exceeds maximum of 200")
+			return
+		}
+		limit = n
+	}
+
+	// Ask for one row beyond the requested limit so has_more/next_cursor
+	// are exact: if the DB returns limit+1 rows, we know a next page
+	// exists AND we already have the row we'd point the cursor at.
+	fetch := limit + 1
+
+	var (
+		responses []InboxItemResponse
+		fetchErr  error
+	)
+
+	if beforeRaw != "" {
+		cursorTS, cursorID, err := decodeTimelineCursor(beforeRaw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid cursor")
+			return
+		}
+		rows, err := h.Queries.ListInboxItemsBefore(r.Context(), db.ListInboxItemsBeforeParams{
+			WorkspaceID:   wsUUID,
+			RecipientType: "member",
+			RecipientID:   parseUUID(userID),
+			Column4:       cursorTS,
+			Column5:       cursorID,
+			Lim:           int32(fetch),
+		})
+		fetchErr = err
+		if err == nil {
+			responses = make([]InboxItemResponse, len(rows))
+			for i, row := range rows {
+				responses[i] = inboxRowBeforeToResponse(row)
+			}
+		}
+	} else {
+		rows, err := h.Queries.ListInboxItems(r.Context(), db.ListInboxItemsParams{
+			WorkspaceID:   wsUUID,
+			RecipientType: "member",
+			RecipientID:   parseUUID(userID),
+			Lim:           int32(fetch),
+		})
+		fetchErr = err
+		if err == nil {
+			responses = make([]InboxItemResponse, len(rows))
+			for i, row := range rows {
+				responses[i] = inboxRowToResponse(row)
+			}
+		}
+	}
+	if fetchErr != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list inbox")
+		return
+	}
+
+	resp := InboxListResponse{Items: responses}
+	if len(responses) > limit {
+		resp.Items = responses[:limit]
+		resp.HasMore = true
+		last := resp.Items[len(resp.Items)-1]
+		ts, err := time.Parse(time.RFC3339Nano, last.CreatedAt)
+		if err == nil {
+			cursor := encodeTimelineCursor(
+				pgtype.Timestamptz{Time: ts, Valid: true},
+				parseUUID(last.ID),
+			)
+			resp.NextCursor = &cursor
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// listInboxLegacy serves the array-of-items shape to clients that
+// predate PUL-481 pagination. Capped at inboxLegacyCap so the old
+// Multica.app shell stays snappy on active accounts even without an
+// auto-update. Server-side dedup + LIMIT come from the SQL layer, so
+// even the "no pagination" path is bounded — 13 MB responses cannot
+// recur regardless of client version.
+func (h *Handler) listInboxLegacy(w http.ResponseWriter, r *http.Request, wsUUID pgtype.UUID, userID string) {
+	rows, err := h.Queries.ListInboxItems(r.Context(), db.ListInboxItemsParams{
 		WorkspaceID:   wsUUID,
 		RecipientType: "member",
 		RecipientID:   parseUUID(userID),
+		Lim:           int32(inboxLegacyCap),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list inbox")
 		return
 	}
 
-	resp := make([]InboxItemResponse, len(items))
-	for i, item := range items {
-		resp[i] = inboxRowToResponse(item)
+	resp := make([]InboxItemResponse, len(rows))
+	for i, row := range rows {
+		resp[i] = inboxRowToResponse(row)
 	}
-
 	writeJSON(w, http.StatusOK, resp)
 }
 

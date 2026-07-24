@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useModalStore } from "@multica/core/modals";
 import { useIssueDraftStore } from "@multica/core/issues/stores/draft-store";
 import {
-  inboxListOptions,
-  deduplicateInboxItems,
+  inboxInfiniteListOptions,
+  flattenInboxPages,
   useInboxUnreadCount,
 } from "@multica/core/inbox/queries";
 import {
@@ -70,8 +70,15 @@ export function InboxPage() {
   }, [urlIssue]);
 
   const wsId = useWorkspaceId();
-  const { data: rawItems = [], isLoading: loading } = useQuery(inboxListOptions(wsId));
-  const items = useMemo(() => deduplicateInboxItems(rawItems), [rawItems]);
+  const {
+    data,
+    isLoading: loading,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery(inboxInfiniteListOptions(wsId));
+  // Server dedupes by COALESCE(issue_id, id) so no client pass is required.
+  const items = useMemo(() => flattenInboxPages(data), [data]);
 
   const selected = items.find((i) => (i.issue_id ?? i.id) === selectedKey) ?? null;
 
@@ -237,6 +244,25 @@ export function InboxPage() {
     </PageHeader>
   );
 
+  const loadMore = hasNextPage ? (
+    // PUL-481: paginated inbox — server caps each page at INBOX_PAGE_SIZE
+    // to keep the payload small; the trailing button pulls the next page
+    // when the user scrolls to it. Older-first pagination only, so the
+    // "load more" always walks backwards in time.
+    <div className="flex justify-center py-3">
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={isFetchingNextPage}
+        onClick={() => fetchNextPage()}
+      >
+        {isFetchingNextPage
+          ? t(($) => $.list.loading_more)
+          : t(($) => $.list.load_more)}
+      </Button>
+    </div>
+  ) : null;
+
   const listBody = items.length === 0 ? (
     <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
       <Inbox className="mb-3 h-8 w-8 text-muted-foreground/50" />
@@ -253,6 +279,7 @@ export function InboxPage() {
           onArchive={() => handleArchive(item.id)}
         />
       ))}
+      {loadMore}
     </div>
   );
 

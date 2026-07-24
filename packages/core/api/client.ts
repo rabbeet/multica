@@ -19,6 +19,8 @@ import type {
   AgentRunCount,
   AgentRuntime,
   InboxItem,
+  InboxListPage,
+  InboxListParams,
   SkillState,
   SkillStatus,
   IssueSubscriber,
@@ -969,8 +971,20 @@ export class ApiClient {
   }
 
   // Inbox
-  async listInbox(): Promise<InboxItem[]> {
-    return this.fetch("/api/inbox");
+  //
+  // PUL-481 wrapped this endpoint in cursor pagination. Passing any
+  // pagination param opts into the new `{items, next_cursor, has_more}`
+  // shape; omitting all params returns the legacy `InboxItem[]` shape
+  // (capped at 200 items) for Multica.app builds that predate the
+  // wrapping — the desktop shell reads the body as an array and would
+  // crash on the wrapped form.
+  async listInbox(params: InboxListParams = {}): Promise<InboxListPage> {
+    const search = new URLSearchParams();
+    // Always send `limit` so we get the wrapped shape. Callers that
+    // don't care about the limit still opt into pagination this way.
+    search.set("limit", String(params.limit ?? 100));
+    if (params.before) search.set("before", params.before);
+    return this.fetch(`/api/inbox?${search.toString()}`);
   }
 
   async markInboxRead(id: string): Promise<InboxItem> {

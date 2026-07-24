@@ -21,6 +21,10 @@ func inboxItemsForRecipient(t *testing.T, queries *db.Queries, recipientID strin
 		WorkspaceID:   util.MustParseUUID(testWorkspaceID),
 		RecipientType: "member",
 		RecipientID:   util.MustParseUUID(recipientID),
+		// PUL-481 introduced a required `Lim`; use a value well above the
+		// per-test fixture count so the assertion helper still returns the
+		// full set.
+		Lim: 100,
 	})
 	if err != nil {
 		t.Fatalf("ListInboxItems: %v", err)

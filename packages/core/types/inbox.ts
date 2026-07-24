@@ -63,6 +63,30 @@ export interface OwnershipMeta {
   reason: "review" | "approval" | null;
 }
 
+/**
+ * PUL-481 cursor-paginated inbox page. Items are newest-first, deduped
+ * server-side by COALESCE(issue_id, id) — one row per issue (or per
+ * standalone item). `next_cursor` is an opaque base64 string; pass it
+ * back verbatim as `?before=<cursor>` to fetch the next (older) page.
+ * `has_more` is redundant with `next_cursor != null` but is what UI
+ * code typically reads to gate the "load more" affordance.
+ */
+export interface InboxListPage {
+  items: InboxItem[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+/**
+ * Query params for `api.listInbox`. Omit both fields to fetch the
+ * latest page with the server's default limit.
+ */
+export interface InboxListParams {
+  limit?: number;
+  /** Opaque cursor from a previous page's `next_cursor`. */
+  before?: string;
+}
+
 export interface InboxItem {
   id: string;
   workspace_id: string;
