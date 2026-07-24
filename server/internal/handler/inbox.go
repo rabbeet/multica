@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,6 +13,17 @@ import (
 	"github.com/multica-ai/multica/server/internal/logger"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
+)
+
+// PUL-445 pagination bounds for GET /api/inbox. The default is small
+// enough that first-paint fits comfortably in a couple of hundred KB
+// even with the 5-CTE JOIN payload per row; the cap prevents a
+// single caller from re-creating the pre-pagination behavior by
+// asking for the whole tail. Keyset (?before=<created_at>) walks
+// past the default without re-scanning the head.
+const (
+	inboxDefaultLimit = 50
+	inboxMaxLimit     = 200
 )
 
 type InboxItemResponse struct {
@@ -390,10 +402,33 @@ func (h *Handler) ListInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	q := r.URL.Query()
+	limit := int32(inboxDefaultLimit)
+	if l := q.Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = int32(v)
+		}
+	}
+	if limit > inboxMaxLimit {
+		limit = inboxMaxLimit
+	}
+
+	var before pgtype.Timestamptz
+	if v := q.Get("before"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid before parameter; expected RFC3339 format")
+			return
+		}
+		before = pgtype.Timestamptz{Time: t, Valid: true}
+	}
+
 	items, err := h.Queries.ListInboxItems(r.Context(), db.ListInboxItemsParams{
 		WorkspaceID:   wsUUID,
 		RecipientType: "member",
 		RecipientID:   parseUUID(userID),
+		Before:        before,
+		Lim:           limit,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list inbox")

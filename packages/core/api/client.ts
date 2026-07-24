@@ -969,8 +969,19 @@ export class ApiClient {
   }
 
   // Inbox
-  async listInbox(): Promise<InboxItem[]> {
-    return this.fetch("/api/inbox");
+  // PUL-445 pagination — see packages/core/inbox/queries.ts for the
+  // useInfiniteQuery wrapper. `limit` (default 50 server-side, cap 200)
+  // and `before` (RFC3339 keyset) are optional; passing neither returns
+  // the newest page.
+  async listInbox(opts?: {
+    limit?: number;
+    before?: string;
+  }): Promise<InboxItem[]> {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts?.before) params.set("before", opts.before);
+    const qs = params.toString();
+    return this.fetch(`/api/inbox${qs ? `?${qs}` : ""}`);
   }
 
   async markInboxRead(id: string): Promise<InboxItem> {

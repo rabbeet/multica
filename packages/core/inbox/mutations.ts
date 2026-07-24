@@ -20,9 +20,14 @@ export function useMarkInboxRead() {
     onError: (_err, _id, ctx) => {
       if (ctx?.prev) qc.setQueryData(inboxKeys.list(wsId), ctx.prev);
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: inboxKeys.list(wsId) });
-    },
+    // PUL-445: no invalidateQueries on settle. The optimistic update in
+    // onMutate has already flipped `read: true` in the cache, and the
+    // server response is byte-identical (MarkInboxRead returns the row
+    // with read=true). Refetching the whole list just to re-confirm was
+    // the biggest hidden cost when the list grew — every mark-as-read
+    // click triggered a full GET /api/inbox, which under the pre-fix
+    // handler was 9.4 MB per hop. Even now that the list is paginated
+    // to 50, the refetch is redundant work.
   });
 }
 

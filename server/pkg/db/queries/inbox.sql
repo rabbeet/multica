@@ -88,7 +88,14 @@ LEFT JOIN active_tasks  at ON at.issue_id = i.issue_id
 LEFT JOIN last_status   lst ON lst.issue_id = i.issue_id
 LEFT JOIN last_comment  lc  ON lc.issue_id = i.issue_id
 WHERE i.workspace_id = $1 AND i.recipient_type = $2 AND i.recipient_id = $3 AND i.archived = false
-ORDER BY i.created_at DESC;
+  -- PUL-445 keyset pagination: NULL 'before' returns the first page,
+  -- caller-provided timestamp walks strictly-older rows. Combined with
+  -- the ORDER BY + LIMIT below and the partial index
+  -- idx_inbox_recipient_active_recent (migration 091), the planner
+  -- reads exactly LIMIT rows via an index scan.
+  AND (sqlc.narg('before')::timestamptz IS NULL OR i.created_at < sqlc.narg('before')::timestamptz)
+ORDER BY i.created_at DESC
+LIMIT sqlc.arg('lim')::int;
 
 -- name: GetInboxItem :one
 SELECT * FROM inbox_item
@@ -171,3 +178,22 @@ WHERE i.workspace_id = $1
 UPDATE inbox_item i SET archived = true
 WHERE i.workspace_id = $1 AND i.recipient_type = 'member' AND i.recipient_id = $2 AND i.archived = false
   AND i.issue_id IN (SELECT id FROM issue WHERE status IN ('done', 'cancelled'));
+
+-- name: ArchiveOldReadInbox :execrows
+-- PUL-445 retention. Archive read-and-not-yet-archived items older than
+-- $1 seconds. Runs hourly from cmd/server/inbox_cleanup_scheduler.go so
+-- the inbox does not accumulate 2+ months of read notifications the way
+-- workspace f00bf003 grew to 2553 rows before shipping this fix.
+--
+-- The inner SELECT + LIMIT chunks the sweep so the first run on a table
+-- with tens of thousands of eligible rows still holds row locks only
+-- for the batch, not the whole tail. Next tick picks up the residue.
+UPDATE inbox_item SET archived = true
+WHERE id IN (
+  SELECT id FROM inbox_item
+   WHERE archived = false
+     AND read = true
+     AND created_at < now() - (sqlc.arg('ttl_seconds')::bigint * interval '1 second')
+   ORDER BY created_at ASC
+   LIMIT 5000
+);
