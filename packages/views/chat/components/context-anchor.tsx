@@ -1,13 +1,16 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { Focus } from "lucide-react";
 import type { ContextAnchor } from "@multica/core/chat";
 import { useChatStore } from "@multica/core/chat";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { issueDetailOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
-import { inboxListOptions } from "@multica/core/inbox/queries";
+import {
+  inboxInfiniteListOptions,
+  flattenInboxPages,
+} from "@multica/core/inbox/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import {
   Tooltip,
@@ -58,10 +61,15 @@ export function useRouteAnchorCandidate(wsId: string): {
     : null;
 
   // Inbox: the anchor is the issue behind the currently selected notification.
-  const { data: inboxItems = [] } = useQuery({
-    ...inboxListOptions(wsId),
+  // PUL-481: the inbox list is now paginated — flatten loaded pages into a
+  // single array for the lookup. Only pages the user has scrolled into are
+  // present, but the selected notification is by definition visible, so
+  // page[0] almost always covers this call.
+  const { data: inboxCache } = useInfiniteQuery({
+    ...inboxInfiniteListOptions(wsId),
     enabled: isInbox,
   });
+  const inboxItems = flattenInboxPages(inboxCache);
   const inboxKey = isInbox ? searchParams.get("issue") : null;
   const inboxSelectedIssueId =
     isInbox && inboxKey

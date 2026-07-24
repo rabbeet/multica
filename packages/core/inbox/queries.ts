@@ -1,59 +1,95 @@
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import {
+  infiniteQueryOptions,
+  queryOptions,
+  useQuery,
+} from "@tanstack/react-query";
 import { api } from "../api";
-import type { InboxItem } from "../types";
+import type { InboxItem, InboxListPage } from "../types";
 
 export const inboxKeys = {
   all: (wsId: string) => ["inbox", wsId] as const,
   list: (wsId: string) => [...inboxKeys.all(wsId), "list"] as const,
+  unreadCount: (wsId: string) => [...inboxKeys.all(wsId), "unread-count"] as const,
 };
 
-export function inboxListOptions(wsId: string) {
-  return queryOptions({
+/**
+ * PUL-481: default page size for the inbox list. Deliberately smaller than the
+ * server's 200-cap so the initial paint stays fast even for accounts with
+ * dozens of active issues — infinite scroll pulls the rest on demand.
+ */
+export const INBOX_PAGE_SIZE = 100;
+
+/**
+ * Cache shape TanStack Query stores for the inbox infinite query. Callers that
+ * update the cache (mutations, ws-updaters) map over `pages` — see
+ * `mutations.ts` / `ws-updaters.ts` for the walk helpers.
+ */
+export type InboxCacheData = {
+  pages: InboxListPage[];
+  pageParams: (string | undefined)[];
+};
+
+/**
+ * Cursor-paginated inbox list. All consumers (sidebar, chat anchor, inbox
+ * page) share this key so a single cache backs the whole workspace-wide inbox
+ * view — mutations + ws-updaters only need to touch one entry.
+ *
+ * Historically the endpoint returned every non-archived item unbounded and
+ * the client deduped. See PUL-481 for the payload-size incident that drove
+ * this migration to server-side dedup + keyset cursor.
+ */
+export function inboxInfiniteListOptions(wsId: string) {
+  return infiniteQueryOptions<
+    InboxListPage,
+    Error,
+    InboxCacheData,
+    readonly unknown[],
+    string | undefined
+  >({
     queryKey: inboxKeys.list(wsId),
-    queryFn: () => api.listInbox(),
+    initialPageParam: undefined,
+    queryFn: ({ pageParam }) =>
+      api.listInbox({ limit: INBOX_PAGE_SIZE, before: pageParam }),
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more && lastPage.next_cursor ? lastPage.next_cursor : undefined,
   });
 }
 
 /**
- * Unread inbox count for the given workspace, aligned with what the inbox
- * list UI renders: archived items excluded, then deduplicated by issue so a
- * single issue with three unread notifications counts once.
+ * Server-derived unread count, dedup'd by COALESCE(issue_id, id) to match the
+ * inbox UI's list semantics (one row per issue). This replaces the previous
+ * client-side count that had to walk the entire inbox and would have broken
+ * once we bounded the page size (PUL-481).
  */
+export function inboxUnreadCountOptions(wsId: string) {
+  return queryOptions({
+    queryKey: inboxKeys.unreadCount(wsId),
+    queryFn: () => api.getUnreadInboxCount(),
+    select: (data: { count: number }) => data.count,
+  });
+}
+
 export function useInboxUnreadCount(wsId: string | null | undefined): number {
   const { data } = useQuery({
-    queryKey: inboxKeys.list(wsId ?? ""),
-    queryFn: () => api.listInbox(),
+    ...inboxUnreadCountOptions(wsId ?? ""),
     enabled: !!wsId,
-    select: (items: InboxItem[]) =>
-      deduplicateInboxItems(items).filter((i) => !i.read).length,
   });
   return data ?? 0;
 }
 
 /**
- * Deduplicate inbox items by issue_id (one entry per issue, Linear-style).
- * Exported for consumers to use in useMemo — not in queryOptions select
- * (to avoid new array references on every cache update).
+ * Flatten cache pages into the legacy `InboxItem[]` shape. Used by consumers
+ * (chat context anchor, inbox page) that render the currently-loaded window
+ * as a single list. Server dedup means items are already unique by
+ * `(issue_id ?? id)`; no client-side pass required.
  */
-export function deduplicateInboxItems(items: InboxItem[]): InboxItem[] {
-  const active = items.filter((i) => !i.archived);
-  const groups = new Map<string, InboxItem[]>();
-  for (const item of active) {
-    const key = item.issue_id ?? item.id;
-    const group = groups.get(key) ?? [];
-    group.push(item);
-    groups.set(key, group);
+export function flattenInboxPages(
+  data: InboxCacheData | undefined,
+): InboxItem[] {
+  if (!data) return [];
+  const out: InboxItem[] = [];
+  for (const page of data.pages) {
+    for (const item of page.items) out.push(item);
   }
-  const merged: InboxItem[] = [];
-  for (const group of groups.values()) {
-    group.sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-    );
-    if (group[0]) merged.push(group[0]);
-  }
-  return merged.sort(
-    (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  );
+  return out;
 }

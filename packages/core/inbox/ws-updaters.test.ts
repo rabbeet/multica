@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { onInboxIssueDeleted, onInboxIssueStatusChanged } from "./ws-updaters";
-import { inboxKeys } from "./queries";
-import type { InboxItem } from "../types";
+import { inboxKeys, type InboxCacheData, flattenInboxPages } from "./queries";
+import type { InboxItem, InboxListPage } from "../types";
 
 const wsId = "ws-1";
 
@@ -41,43 +41,56 @@ function makeItem(
   };
 }
 
+// PUL-481: /api/inbox is paginated. Ws-updaters walk `data.pages` rather than
+// a flat array — this helper builds the two-page shape the cache stores.
+function seedCache(qc: QueryClient, pages: InboxItem[][]) {
+  const cache: InboxCacheData = {
+    pages: pages.map<InboxListPage>((items, idx) => ({
+      items,
+      next_cursor: idx < pages.length - 1 ? `c${idx}` : null,
+      has_more: idx < pages.length - 1,
+    })),
+    pageParams: pages.map((_, idx) => (idx === 0 ? undefined : `c${idx - 1}`)),
+  };
+  qc.setQueryData<InboxCacheData>(inboxKeys.list(wsId), cache);
+}
+
 describe("onInboxIssueDeleted", () => {
-  it("removes all inbox items referencing the deleted issue", () => {
+  it("removes all inbox items referencing the deleted issue across pages", () => {
     const qc = new QueryClient();
-    const items = [
-      makeItem("i1", "issue-a"),
-      makeItem("i2", "issue-a"),
-      makeItem("i3", "issue-b"),
-      makeItem("i4", null),
-    ];
-    qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), items);
+    seedCache(qc, [
+      [makeItem("i1", "issue-a"), makeItem("i2", "issue-a")],
+      [makeItem("i3", "issue-b"), makeItem("i4", null)],
+    ]);
 
     onInboxIssueDeleted(qc, wsId, "issue-a");
 
-    const after = qc.getQueryData<InboxItem[]>(inboxKeys.list(wsId));
-    expect(after?.map((i) => i.id)).toEqual(["i3", "i4"]);
+    const after = qc.getQueryData<InboxCacheData>(inboxKeys.list(wsId));
+    expect(flattenInboxPages(after).map((i) => i.id)).toEqual(["i3", "i4"]);
   });
 
   it("is a no-op when the inbox cache is empty", () => {
     const qc = new QueryClient();
     expect(() => onInboxIssueDeleted(qc, wsId, "issue-a")).not.toThrow();
-    expect(qc.getQueryData<InboxItem[]>(inboxKeys.list(wsId))).toBeUndefined();
+    expect(
+      qc.getQueryData<InboxCacheData>(inboxKeys.list(wsId)),
+    ).toBeUndefined();
   });
 });
 
 describe("onInboxIssueStatusChanged", () => {
-  it("updates issue_status only for items referencing the issue", () => {
+  it("updates issue_status only for items referencing the issue across pages", () => {
     const qc = new QueryClient();
-    const items = [
-      makeItem("i1", "issue-a", { issue_status: "todo" }),
-      makeItem("i2", "issue-b", { issue_status: "todo" }),
-    ];
-    qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), items);
+    seedCache(qc, [
+      [makeItem("i1", "issue-a", { issue_status: "todo" })],
+      [makeItem("i2", "issue-b", { issue_status: "todo" })],
+    ]);
 
-    onInboxIssueStatusChanged(qc, wsId, "issue-a", "done");
+    onInboxIssueStatusChanged(qc, wsId, "issue-a", "deployed");
 
-    const after = qc.getQueryData<InboxItem[]>(inboxKeys.list(wsId));
-    expect(after?.find((i) => i.id === "i1")?.issue_status).toBe("done");
-    expect(after?.find((i) => i.id === "i2")?.issue_status).toBe("todo");
+    const after = qc.getQueryData<InboxCacheData>(inboxKeys.list(wsId));
+    const flat = flattenInboxPages(after);
+    expect(flat.find((i) => i.id === "i1")?.issue_status).toBe("deployed");
+    expect(flat.find((i) => i.id === "i2")?.issue_status).toBe("todo");
   });
 });

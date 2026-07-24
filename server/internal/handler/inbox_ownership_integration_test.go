@@ -127,6 +127,7 @@ func TestInboxOwnership_EndToEnd(t *testing.T) {
 		WorkspaceID:   parseUUID(testWorkspaceID),
 		RecipientType: "member",
 		RecipientID:   parseUUID(testUserID),
+		Lim:           inboxLegacyCap,
 	})
 	if err != nil {
 		t.Fatalf("ListInboxItems: %v", err)

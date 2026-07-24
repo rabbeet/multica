@@ -47,6 +47,8 @@ export type {
 export type { Workspace, WorkspaceRepo, Member, MemberRole, User, MemberWithUser, Invitation } from "./workspace";
 export type {
   InboxItem,
+  InboxListPage,
+  InboxListParams,
   InboxSeverity,
   InboxItemType,
   SkillState,

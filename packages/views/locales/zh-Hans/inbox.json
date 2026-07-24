@@ -12,7 +12,9 @@
   "list": {
     "empty": "暂无通知",
     "mark_done_tooltip": "标为已完成",
-    "archive_tooltip": "归档"
+    "archive_tooltip": "归档",
+    "load_more": "加载更多",
+    "loading_more": "加载中…"
   },
   "detail": {
     "select_prompt": "选择一条通知查看详情",
