@@ -19,7 +19,6 @@ import { MyIssuesPage } from "@multica/views/my-issues";
 import { SkillsPage } from "@multica/views/skills";
 import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
 import { AlertsPage, previewAlertFixtures } from "@multica/views/alerts";
-import { LoadPage, previewLoadSnapshot } from "@multica/views/load";
 import { AgentsPage } from "@multica/views/agents";
 import { InboxPage } from "@multica/views/inbox";
 import { SettingsPage } from "@multica/views/settings";
@@ -139,11 +138,6 @@ export const appRoutes: RouteObject[] = [
             path: "alerts",
             element: <AlertsPage alerts={previewAlertFixtures} preview />,
             handle: { title: "Alerts" },
-          },
-          {
-            path: "load",
-            element: <LoadPage snapshot={previewLoadSnapshot} preview />,
-            handle: { title: "Load" },
           },
           { path: "skills", element: <SkillsPage />, handle: { title: "Skills" } },
           {
