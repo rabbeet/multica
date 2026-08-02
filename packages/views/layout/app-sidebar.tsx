@@ -18,7 +18,6 @@ import {
   Inbox,
   ListTodo,
   Bot,
-  Bell,
   Monitor,
   ChevronDown,
   ChevronRight,
@@ -108,7 +107,6 @@ type NavKey =
   | "autopilots"
   | "agents"
   | "runtimes"
-  | "alerts"
   | "skills"
   | "settings";
 
@@ -122,7 +120,6 @@ type NavLabelKey =
   | "autopilots"
   | "agents"
   | "runtimes"
-  | "alerts"
   | "skills"
   | "settings";
 
@@ -143,7 +140,6 @@ const workspaceNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[]
 ];
 
 const configureNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
-  { key: "alerts", labelKey: "alerts", icon: Bell },
   { key: "runtimes", labelKey: "runtimes", icon: Monitor },
   { key: "skills", labelKey: "skills", icon: BookOpenText },
   { key: "settings", labelKey: "settings", icon: Settings },
