@@ -25,6 +25,7 @@ describe("paths.workspace() shape", () => {
         "missionControl",
         "myIssues",
         "runtimes",
+        "alerts",
         "skills",
         "settings",
       ]),
@@ -47,6 +48,7 @@ describe("paths.workspace() shape", () => {
       ["missionControl", "inbox/mission-control"],
       ["myIssues", "my-issues"],
       ["runtimes", "runtimes"],
+      ["alerts", "alerts"],
       ["skills", "skills"],
       ["settings", "settings"],
     ];
