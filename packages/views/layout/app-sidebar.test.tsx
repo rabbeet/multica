@@ -92,6 +92,7 @@ vi.mock("@multica/core/paths", () => ({
     autopilots: () => "/acme/autopilots",
     agents: () => "/acme/agents",
     runtimes: () => "/acme/runtimes",
+    alerts: () => "/acme/alerts",
     skills: () => "/acme/skills",
     settings: () => "/acme/settings",
     issueDetail: (id: string) => `/acme/issues/${id}`,
