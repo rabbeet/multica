@@ -6,8 +6,10 @@ import {
   Check,
   ChevronRight,
   Clock3,
+  Database,
   MessageSquare,
   Plus,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import { Badge } from "@multica/ui/components/ui/badge";
@@ -187,15 +189,28 @@ function AlertCard({
           className="mt-1 after:-inset-y-3"
         />
       </div>
+      <div className="flex flex-wrap gap-1.5 px-3.5 pb-3">
+        <Badge variant="outline" className="gap-1.5 rounded-md px-2 py-1 text-[10px] font-normal text-muted-foreground">
+          <Database className="size-3" />
+          {alert.source}
+        </Badge>
+        <Badge variant="outline" className="gap-1.5 rounded-md px-2 py-1 text-[10px] font-normal text-muted-foreground">
+          <RefreshCw className="size-3" />
+          {alert.schedule.cadence}
+        </Badge>
+        <Badge variant="outline" className="gap-1.5 rounded-md px-2 py-1 text-[10px] font-normal text-muted-foreground">
+          <Clock3 className="size-3" />
+          {alert.schedule.dataWindow}
+        </Badge>
+      </div>
       <button
         type="button"
         onClick={onOpen}
         aria-label={t(($) => $.card.open_details, { name: alert.name })}
-        className="grid min-h-12 w-full grid-cols-[1fr_1fr_auto] items-center gap-2 border-t px-3.5 text-left text-[11px] text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex min-h-12 w-full items-center gap-2 border-t px-3.5 text-left text-[11px] text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <span className="flex min-w-0 items-center gap-1.5 truncate"><Clock3 className="size-3.5 shrink-0" />{alert.schedule.cadence}</span>
-        <span className="flex min-w-0 items-center gap-1.5 truncate"><MessageSquare className="size-3.5 shrink-0" />{alert.delivery.channel}</span>
-        <ChevronRight className="size-4" />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate"><MessageSquare className="size-3.5 shrink-0" />{alert.delivery.channel}</span>
+        <ChevronRight className="size-4 shrink-0" />
       </button>
       <div className="sr-only">{alert.severity}</div>
     </article>
