@@ -5,7 +5,7 @@ from `rabbeet/Pulse` under PUL-235.
 
 ## Status (2026-05-23)
 
-- **Phase**: M1 landed (this PR). Telegram composite + smoke-claude-action +
+- **Phase**: M1 landed (this PR). Telegram composite + OpenCode security smoke +
   this doc.
 - **Next**: M2 (code-review.yml + code-review-fix.yml), M3 (auto-gofmt +
   auto-merge), M4 (pr-test-autofix + ci-autofix), M5 (release-watchdog).
@@ -31,12 +31,12 @@ PR opened (agent-* branch)
     │
     ├─► CI                   (frontend + backend tests, lint, typecheck, build)
     │       │
-    │       ├─► [green]   code-review                (Claude posts verdict + labels)
-    │       │             ├─► [claude-approved]     auto-merge-on-approval (squashes + deletes branch)
-    │       │             ├─► [claude-fix-needed]   code-review-fix       (Claude commits fixes, retriggers review)
+    │       ├─► [green]   code-review                (OpenCode posts verdict + labels)
+    │       │             ├─► [opencode-approved]   auto-merge-on-approval (squashes + deletes branch)
+    │       │             ├─► [opencode-fix-needed] code-review-fix       (OpenCode commits fixes, retriggers review)
     │       │             └─► [needs-human-review]  STOP, human required
     │       │
-    │       └─► [red]     pr-test-autofix            (Claude diagnoses + commits test fixes)
+    │       └─► [red]     pr-test-autofix            (OpenCode diagnoses + commits test fixes)
     │
     └─► (after merge to main)
             │
@@ -58,7 +58,7 @@ workflows will fail at secret resolution.
 
 | Secret | Used by | Source |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | code-review, code-review-fix, ci-autofix, pr-test-autofix | `op://Pulse-Dev/Pulse-env/CLAUDE_CODE_OAUTH_TOKEN` |
+| `OPENCODE_AUTH_JSON` | code-review, code-review-fix, ci-autofix, pr-test-autofix | OpenCode OpenAI Codex OAuth `auth.json` contents |
 | `GH_AUTOFIX_TOKEN` | auto-gofmt, auto-merge-on-approval, code-review-fix, ci-autofix, pr-test-autofix | `op://Pulse-Dev/Pulse-env/GH_AUTOFIX_TOKEN` (same PAT shared with Pulse; `pulse-autofix-bot` identity already has rights on this repo) |
 | `TELEGRAM_BOT_TOKEN` | code-review, ci-autofix, post-merge-release-watchdog, pr-test-autofix | `op://Pulse-Dev/Pulse-env/TELEGRAM_BOT_TOKEN` |
 | `TELEGRAM_CHAT_ID` | (same as above) | `op://Pulse-Dev/Pulse-env/TELEGRAM_CHAT_ID` |
@@ -66,12 +66,19 @@ workflows will fail at secret resolution.
 One-liner to provision (run from a machine with 1Password CLI + `gh` auth):
 
 ```bash
-for K in CLAUDE_CODE_OAUTH_TOKEN GH_AUTOFIX_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
+for K in OPENCODE_AUTH_JSON GH_AUTOFIX_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
   gh secret set --repo rabbeet/multica "$K" --body "$(op read "op://Pulse-Dev/Pulse-env/$K")"
 done
 ```
 
 (Repeat with `--repo rabbeet/multica-server` for the infra repo once S1-S4 land.)
+
+Set the required repository variable to the OpenAI model consumed by every
+OpenCode workflow, for example:
+
+```bash
+gh variable set OPENCODE_MODEL --repo rabbeet/multica --body 'openai/<model>'
+```
 
 ## PAT rotation
 
@@ -86,8 +93,8 @@ Standard labels recognized by the autofix workflows (same semantics as Pulse):
 
 | Label | Effect |
 |---|---|
-| `claude-approved` | Auto-merge-on-approval squashes + merges on CI green. Set by code-review when verdict = pass. |
-| `claude-fix-needed` | Triggers code-review-fix to autocommit fixes. Set by code-review when verdict = changes-requested. |
+| `opencode-approved` | Auto-merge-on-approval squashes + merges on CI green. Set by code-review only after a machine-readable current-SHA approval. |
+| `opencode-fix-needed` | Triggers code-review-fix to autocommit fixes. Set by code-review when the machine-readable verdict requires changes. |
 | `needs-human-review` | Hard-stop: all autofix workflows skip. Set after 3 fix rounds OR on autofix-revert-detected, OR manually. |
 | `fix-round-N` | Internal counter. Round 4 escalates to `needs-human-review`. |
 | `pr-test-autofix-disabled` | Per-PR escape hatch — disables pr-test-autofix for that PR only. |
