@@ -21,6 +21,7 @@ import type modals from "../locales/en/modals.json";
 import type runtimes from "../locales/en/runtimes.json";
 import type layout from "../locales/en/layout.json";
 import type alerts from "../locales/en/alerts.json";
+import type load from "../locales/en/load.json";
 
 // Module augmentation enables i18next v26 selector API across the monorepo:
 // `t($ => $.signin.title)` resolves to the value in en/auth.json.
@@ -56,6 +57,7 @@ declare module "i18next" {
       runtimes: typeof runtimes;
       layout: typeof layout;
       alerts: typeof alerts;
+      load: typeof load;
     };
     enableSelector: true;
   }
