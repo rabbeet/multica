@@ -252,15 +252,16 @@ jobs:
             mv .opencode-debug-report.txt /tmp/debug-report.txt
           fi
           pnpm install --frozen-lockfile
-          cd server
-          go mod download
-          if git diff --name-only -- '*.sql' 'sqlc.yaml' | grep -q .; then
-            sqlc generate
-          fi
-          find . -type f -name '*.go' -print0 | xargs -0 gofmt -w
-          go build ./...
-          go test ./...
-          cd ..
+          (
+            cd server
+            go mod download
+            if git diff --name-only -- '*.sql' 'sqlc.yaml' | grep -q .; then
+              sqlc generate
+            fi
+            find . -type f -name '*.go' -print0 | xargs -0 gofmt -w
+            go build ./...
+            go test ./...
+          )
           pnpm exec turbo build typecheck lint test --filter='!@multica/docs'
 
       - name: Create OpenCode autofix PR with PAT
