@@ -1,7 +1,7 @@
 name: CI Autofix
 
 # Ported from rabbeet/Pulse @ 74cf64d5 (PUL-235 M4, 2026-05-23) as part of
-# the Approach C lift-and-shift. Runs after CI on main fails — Claude diagnoses
+# the Approach C lift-and-shift. Runs after CI on main fails — OpenCode diagnoses
 # the failure, opens a `ci-autofix-<ts>` PR with the fix, auto-merges when CI
 # on the fix PR goes green (status-rollup-guarded).
 #
@@ -52,6 +52,7 @@ jobs:
 
     env:
       GH_REPO: ${{ github.repository }}
+      OPENCODE_MODEL: ${{ vars.OPENCODE_MODEL }}
 
     steps:
       - name: Extract failed run info
@@ -111,16 +112,18 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
             -d parse_mode=HTML \
-            --data-urlencode "text=🤖 <b>Claude CI Autofix</b> взял в работу
+            --data-urlencode "text=🤖 <b>OpenCode CI Autofix</b> взял в работу
 
           <code>${SAFE_ERROR}</code>
           🔗 <a href=\"${RUN_URL}\">Failed run</a>"
 
-      - name: Checkout code
+      - name: Checkout exact failed SHA without credentials
         if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Go
         if: steps.guard.outputs.skip != 'true'
@@ -140,21 +143,44 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Install pinned OpenCode CLI
+        if: steps.guard.outputs.skip != 'true'
+        run: npm install --global opencode-ai@1.18.11
+
+      - name: Validate OpenAI model
         if: steps.guard.outputs.skip != 'true'
         run: |
-          pnpm install --frozen-lockfile
-          cd server && go mod download
+          [[ "$OPENCODE_MODEL" == openai/* ]] || { echo "::error::vars.OPENCODE_MODEL must be set to an openai/* model."; exit 1; }
 
-      - name: Run Claude Code
-        id: claude
+      - name: Prepare isolated OpenCode workdir and trusted inputs
         if: steps.guard.outputs.skip != 'true'
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          show_full_output: true
-          allowed_bots: "github-actions,claude"
-          prompt: |
+        env:
+          OPENCODE_WORKDIR: ${{ runner.temp }}/opencode-ci-fix
+        run: |
+          set -euo pipefail
+          mkdir -p "$OPENCODE_WORKDIR"
+          jq -n --arg workspace "$GITHUB_WORKSPACE/**" '{
+            "$schema":"https://opencode.ai/config.json",
+            permission:{"*":"deny",bash:"deny",webfetch:"deny",websearch:"deny",read:"allow",glob:"allow",grep:"allow",edit:"allow",external_directory:{($workspace):"allow"}}
+          }' > "$OPENCODE_WORKDIR/opencode.json"
+          git show origin/main:CLAUDE.md > /tmp/trusted-policy.md
+
+      - name: Install OpenAI Codex OAuth session
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          OPENCODE_AUTH_JSON: ${{ secrets.OPENCODE_AUTH_JSON }}
+        run: |
+          [[ -n "$OPENCODE_AUTH_JSON" ]] || { echo "::error::OPENCODE_AUTH_JSON is required."; exit 1; }
+          mkdir -p "$HOME/.local/share/opencode"
+          umask 077
+          printf '%s' "$OPENCODE_AUTH_JSON" > "$HOME/.local/share/opencode/auth.json"
+          chmod 600 "$HOME/.local/share/opencode/auth.json"
+
+      - name: Run OpenCode CI autofix
+        id: opencode
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          PROMPT: |
             You are an automated CI fixer for a Go server (Chi router) + Next.js frontend monorepo.
 
             ## Failed CI Run
@@ -182,41 +208,88 @@ jobs:
                - Migration failure on test DB bring-up
                - flaky test (timeout, race in goroutine, ordering dependency)
 
-            2. **Fix**: Make the minimal fix that resolves the CI failure.
+            2. **Fix**: The repository is at `${{ github.workspace }}`. Make the minimal fix that resolves the CI failure.
                - If it's a Go compile error, fix it directly.
-               - If it's a sqlc drift, run `cd server && sqlc generate` and commit the regenerated file alongside the source `.sql` change.
+               - If it's a sqlc drift, fix the source `.sql`; the workflow will regenerate and verify after credential cleanup.
                - If it's a TS type error, fix the type or the call site (not by suppressing with `@ts-ignore`).
                - Do NOT refactor unrelated code.
 
-            3. **Test**: Verify the fix locally:
-               - For Go: `cd server && go build ./...` to compile-check; then `cd server && go test -run '<TestName>' ./...` for the specific test if applicable.
-               - For TS: `pnpm turbo typecheck --filter='<package>'` if applicable.
+            3. **Test**: Do not execute repository code, builds, tests, package scripts, formatters, generators, or binaries while OAuth is installed. The workflow verifies after credential cleanup.
 
-            4. **Lint**: `gofmt -w server/` on changed Go files. NO prettier (multica has no prettier dependency).
+            4. **Lint**: Leave formatting and generated-code verification to the workflow after credential cleanup.
 
-            5. **PR**: Create a pull request:
-               - Branch: `git checkout -b ci-autofix-$(date +%s)`
-               - Title: `[no-ticket] fix(ci): <concise description>`
-               - Body first line: `multica: ci-autofix follow-up to main-branch CI failure on <SHA>`
-               - Then: link to failed run, root cause, what was fixed.
-               - Label: `ci-autofix`
-               - Commit message must contain `[ci-autofix]`
+            5. **Handoff**: Do not commit, push, create a PR, manage labels, or merge. The workflow performs those operations after validation.
 
-            6. **Report**: Write a debug report at `/tmp/debug-report.txt`.
+            6. **Report**: Write a debug report at `${{ github.workspace }}/.opencode-debug-report.txt`.
                EXACTLY 4 lines, in Russian:
                Line 1: что сломалось
                Line 2: почему сломалось
                Line 3: что починили
                Line 4: затронутые файлы
 
-               Use: `printf '%s\n' 'line1' 'line2' 'line3' 'line4' > /tmp/debug-report.txt`
-
             ## Rules
 
-            - Follow existing code patterns from CLAUDE.md.
+            - Follow the attached trusted policy.
+            - Bash, network access, and repository code execution are forbidden.
             - Do NOT modify unrelated files.
             - Do NOT edit sqlc-generated files (`server/internal/db/*.sql.go`) — fix the source `.sql` and regenerate.
-            - If you cannot determine root cause with confidence, create the PR as draft.
+            - If you cannot determine root cause with confidence, exit without making speculative changes.
+        run: |
+          set -euo pipefail
+          trap 'rm -f "$HOME/.local/share/opencode/auth.json"' EXIT
+          opencode run "$PROMPT" --model "$OPENCODE_MODEL" --variant high -f /tmp/trusted-policy.md -f /tmp/failed-logs.txt
+        working-directory: ${{ runner.temp }}/opencode-ci-fix
+
+      - name: Remove OpenAI Codex OAuth session
+        if: always() && steps.guard.outputs.skip != 'true'
+        run: rm -f "$HOME/.local/share/opencode/auth.json"
+
+      - name: Verify OpenCode fix after OAuth removal
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          if [[ -f .opencode-debug-report.txt ]]; then
+            mv .opencode-debug-report.txt /tmp/debug-report.txt
+          fi
+          pnpm install --frozen-lockfile
+          (
+            cd server
+            go mod download
+            if git diff --name-only -- '*.sql' 'sqlc.yaml' | grep -q .; then
+              sqlc generate
+            fi
+            find . -type f -name '*.go' -print0 | xargs -0 gofmt -w
+            go build ./...
+            go test ./...
+          )
+          pnpm exec turbo build typecheck lint test --filter='!@multica/docs'
+
+      - name: Create OpenCode autofix PR with PAT
+        if: success() && steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTOFIX_TOKEN }}
+          FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ steps.failed.outputs.run_url }}
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo "::error::GH_AUTOFIX_TOKEN is required."; exit 1; }
+          [[ -n "$(git status --porcelain)" ]] || { echo "::error::OpenCode produced no fix."; exit 1; }
+          branch="ci-autofix-$(date +%s)"
+          git switch -c "$branch"
+          git config user.name "opencode-autofix[bot]"
+          git config user.email "opencode-autofix@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(ci): OpenCode repair for $FAILED_SHA [ci-autofix]"
+          gh auth setup-git
+          git push -u origin "$branch"
+          gh pr create --repo "$GH_REPO" --base main --head "$branch" \
+            --title "[no-ticket] fix(ci): repair main CI failure" \
+            --label ci-autofix \
+            --body "multica: OpenCode ci-autofix follow-up to main-branch CI failure on $FAILED_SHA
+
+          Failed run: $RUN_URL
+
+          Root-cause details are in /tmp/debug-report.txt from this workflow run."
 
       - name: Auto-merge PR (with status-rollup guard)
         if: success() && steps.guard.outputs.skip != 'true'
@@ -230,6 +303,7 @@ jobs:
           PR_URL=$(gh pr list --repo "$GH_REPO" --json url,headRefName --jq '[.[] | select(.headRefName | startswith("ci-autofix"))][0].url // empty')
           if [ -z "$PR_URL" ]; then exit 0; fi
           PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          HEAD_SHA=$(gh pr view "$PR_NUM" --repo "$GH_REPO" --json headRefOid --jq .headRefOid)
 
           # Status-rollup guard — refuse merge if any check is FAILURE/CANCELLED/TIMED_OUT.
           ROLLUP=$(gh pr view "$PR_NUM" --repo "$GH_REPO" --json statusCheckRollup --jq '.statusCheckRollup')
@@ -239,7 +313,7 @@ jobs:
             exit 0
           fi
 
-          gh pr merge "$PR_URL" --auto --squash 2>&1 || echo "Auto-merge unavailable (branch protection may require approvals)"
+          gh pr merge "$PR_URL" --auto --squash --match-head-commit "$HEAD_SHA" 2>&1 || echo "Auto-merge unavailable (branch protection may require approvals)"
 
       - name: Find PR URL
         id: pr
@@ -293,7 +367,7 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
             -d parse_mode=HTML \
-            --data-urlencode "text=✅ <b>Claude CI Autofix</b> — фикс готов!
+            --data-urlencode "text=✅ <b>OpenCode CI Autofix</b> — фикс готов!
 
           <b>━━━ Баг-репорт ━━━</b>
           🔴 <b>Что сломалось:</b> ${REPORT_SYMPTOM}
@@ -317,7 +391,7 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
             -d parse_mode=HTML \
-            --data-urlencode "text=⚠️ <b>Claude CI Autofix</b> завершил работу, но PR не создан
+            --data-urlencode "text=⚠️ <b>OpenCode CI Autofix</b> завершил работу, но PR не создан
 
           Проверь результат в <a href=\"${RUN_URL}\">Actions</a>"
 
@@ -333,7 +407,7 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
             -d parse_mode=HTML \
-            --data-urlencode "text=❌ <b>Claude CI Autofix</b> не смог пофиксить
+            --data-urlencode "text=❌ <b>OpenCode CI Autofix</b> не смог пофиксить
 
           <code>${SAFE_ERROR}</code>
 

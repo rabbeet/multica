@@ -1,0 +1,60 @@
+name: Smoke — OpenCode workflow security
+
+# Ported from rabbeet/Pulse @ 74cf64d5 (PUL-235 M1, 2026-05-23). Originally
+# Updated to enforce the OpenCode CLI/OAuth contract before workflow changes ship.
+#
+# IMPORTANT — multica-specific deltas vs Pulse source:
+#   - sentry-autofix.yml is NOT in the validated list. PUL-235 Q2 = drop:
+#     multica has no Sentry SDK wired, so sentry-autofix.yml is not ported.
+#   - code-review.yml / code-review-fix.yml / ci-autofix.yml don't exist yet
+#     at M1 land time. The validator skips missing files (`continue`) so the
+#     smoke is a no-op until M2 and M4 land — but the scaffold is in place
+#     so M2/M4 PRs don't need to also wire up the smoke.
+#
+# Triggered on: workflow_dispatch (manual), pull_request that touches any
+# workflow YAML, weekly schedule. NOTE: because of pull_request trigger on
+# .github/workflows/*.yml, future changes to OpenCode workflows or this
+# smoke itself need `gh pr merge --admin --squash` (workflow self-mod block).
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/*.yml'
+  schedule:
+    - cron: '17 6 * * 1'  # Monday 06:17 UTC, weekly
+
+jobs:
+  validate-opencode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify OpenCode CLI and OAuth invariants
+        run: |
+          set -euo pipefail
+          FAILURES=()
+          for f in .github/workflows/code-review.yml \
+                   .github/workflows/code-review-fix.yml \
+                   .github/workflows/ci-autofix.yml \
+                   .github/workflows/pr-test-autofix.yml; do
+            [[ -f "$f" ]] || { FAILURES+=("$f missing"); continue; }
+            grep -q 'opencode-ai@1.18.11' "$f" || FAILURES+=("$f missing pinned OpenCode CLI")
+            grep -q 'OPENCODE_MODEL:.*vars.OPENCODE_MODEL' "$f" || FAILURES+=("$f model is not repository-variable-bound")
+            grep -q 'OPENCODE_AUTH_JSON:.*secrets.OPENCODE_AUTH_JSON' "$f" || FAILURES+=("$f missing OAuth secret restore")
+            grep -q 'chmod 600.*auth.json' "$f" || FAILURES+=("$f missing auth.json mode 600")
+            grep -q "trap 'rm -f.*auth.json.*EXIT" "$f" || FAILURES+=("$f missing post-OpenCode OAuth cleanup")
+          done
+
+          if rg -n 'anthropics/' .github; then
+            FAILURES+=("legacy Anthropic action reference remains")
+          fi
+          if [ ${#FAILURES[@]} -gt 0 ]; then
+            echo "::error::OpenCode workflow security validation failed:"
+            printf '  - %s\n' "${FAILURES[@]}"
+            exit 1
+          fi
+          echo "All OpenCode workflows use the pinned CLI, repository model variable, and ephemeral OAuth session."

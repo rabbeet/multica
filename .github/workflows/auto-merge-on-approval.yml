@@ -9,34 +9,34 @@
 #     issue numbers because the lessons originate there. Once PUL-236
 #     extracts to a reusable workflow this distinction disappears.
 #
-# Deterministic auto-merge for claude-approved PRs.
+# Deterministic auto-merge for opencode-approved PRs.
 #
 # Replaces the `gh pr merge --squash --auto` call that previously lived inside
-# the Claude prompt in `code-review.yml`. That arrangement was prompt-instruction,
+# the review prompt in `code-review.yml`. That arrangement was prompt-instruction,
 # not enforcement — the model could (and did, see Pulse PUL-143 incident on
 # 2026-05-16/17) skip the status-rollup guard and merge a red-CI PR.
 #
 # This workflow runs deterministic bash, not LLM-generated bash. It merges
 # only when ALL of the following are true:
 #   1. PR is OPEN and not DRAFT.
-#   2. PR has the `claude-approved` label (set by M2's code-review.yml).
-#   3. PR does NOT have `needs-human-review` or `claude-fix-needed`.
+#   2. PR has the `opencode-approved` label and a bot-authored, current-SHA verdict.
+#   3. PR does NOT have `needs-human-review` or `opencode-fix-needed`.
 #   4. The latest CI workflow_run for the current head SHA completed with
 #      conclusion=success.
 #   5. The PR head SHA has not moved since the CI run we are gating on
 #      (no stale-rollup merges).
 #
 # Triggers:
-#   - workflow_run completed for the CI workflow: handles "label set first,
-#     then CI eventually goes green" case.
-#   - pull_request labeled with `claude-approved`: handles "CI already green
-#     when Claude approves" case.
+#   - workflow_run completed for CI or OpenCode Review: retries whenever either
+#     required workflow reaches a terminal state.
+#   - pull_request labeled with `opencode-approved`: handles "CI already green
+#     when OpenCode approves" case.
 
 name: Auto-merge on approval
 
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, OpenCode Review]
     types: [completed]
   pull_request:
     types: [labeled]
@@ -49,7 +49,7 @@ permissions:
 jobs:
   maybe_merge:
     if: |
-      (github.event_name == 'pull_request' && github.event.label.name == 'claude-approved')
+      (github.event_name == 'pull_request' && github.event.label.name == 'opencode-approved')
       || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -113,13 +113,13 @@ jobs:
           fi
 
           HAS_APPROVED=$(echo "$PR_JSON" \
-            | jq '[.labels[] | select(.name == "claude-approved")] | length')
+            | jq '[.labels[] | select(.name == "opencode-approved")] | length')
           if [[ "$HAS_APPROVED" -eq 0 ]]; then
-            echo "PR #$PR has no claude-approved label — skip."
+            echo "PR #$PR has no opencode-approved label — skip."
             exit 0
           fi
 
-          for blocker in needs-human-review claude-fix-needed; do
+          for blocker in needs-human-review opencode-fix-needed; do
             BLOCKED=$(echo "$PR_JSON" \
               | jq --arg n "$blocker" '[.labels[] | select(.name == $n)] | length')
             if [[ "$BLOCKED" -gt 0 ]]; then
@@ -127,6 +127,38 @@ jobs:
               exit 0
             fi
           done
+
+          # Fail closed unless the latest automation-authored verdict binds a
+          # valid approval to this exact head SHA. Pagination is mandatory.
+          VERDICT=$(gh api --paginate --slurp "repos/$GH_REPO/issues/$PR/comments" \
+            | jq -r --arg sha "$HEAD_SHA" '[.[][] | select(.user.login == "github-actions[bot]") | .body | (try capture("REVIEW_SUMMARY (?<json>\\{[^}]+\\})"; "g").json catch empty) | (try fromjson catch empty) | select(.head_sha == $sha)] | last // empty | @json')
+          if [[ -z "$VERDICT" ]] || ! jq -e --arg sha "$HEAD_SHA" '
+            type == "object" and
+            (.critical | type == "number" and . >= 0 and floor == .) and
+            (.warning | type == "number" and . >= 0 and floor == .) and
+            (.nit | type == "number" and . >= 0 and floor == .) and
+            (.round | type == "number" and . >= 1 and . <= 3 and floor == .) and
+            .head_sha == $sha and .verdict == "approved" and
+            .critical == 0 and .warning == 0
+          ' <<<"$VERDICT" >/dev/null; then
+            echo "::error::No trusted OpenCode approval verdict for current head $HEAD_SHA."
+            exit 1
+          fi
+
+          # The exact approved SHA must also have a successful, completed run
+          # of the workflow that published the trusted verdict.
+          REVIEW_RUN=$(gh api "repos/$GH_REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request" \
+            | jq --arg sha "$HEAD_SHA" '[.workflow_runs[] | select(.name == "OpenCode Review" and .head_sha == $sha)] | sort_by(.created_at) | last')
+          if [[ -z "$REVIEW_RUN" || "$REVIEW_RUN" == "null" ]]; then
+            echo "No OpenCode Review workflow_run found for exact head $HEAD_SHA — skip."
+            exit 0
+          fi
+          REVIEW_STATUS=$(jq -r .status <<<"$REVIEW_RUN")
+          REVIEW_CONCLUSION=$(jq -r .conclusion <<<"$REVIEW_RUN")
+          if [[ "$REVIEW_STATUS" != completed || "$REVIEW_CONCLUSION" != success ]]; then
+            echo "::error::OpenCode Review status=$REVIEW_STATUS conclusion=$REVIEW_CONCLUSION for $HEAD_SHA."
+            exit 1
+          fi
 
           # The CI workflow must have completed with conclusion=success for THIS head SHA.
           CI_RUN=$(gh api "repos/$GH_REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request" \
@@ -167,8 +199,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_AUTOFIX_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set -euo pipefail
-          gh pr merge "$PR" --repo "$GH_REPO" --squash --delete-branch
+          gh pr merge "$PR" --repo "$GH_REPO" --squash --delete-branch --match-head-commit "$HEAD_SHA"
           gh pr comment "$PR" --repo "$GH_REPO" \
-            --body "🤖 Auto-merged by \`auto-merge-on-approval.yml\`: CI ✅ and \`claude-approved\` label present."
+            --body "🤖 Auto-merged by \`auto-merge-on-approval.yml\`: CI ✅ and a current-SHA OpenCode approval verdict were present."

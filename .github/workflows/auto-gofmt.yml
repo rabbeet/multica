@@ -7,7 +7,7 @@ name: auto-gofmt
 # diff back as `[autofix] gofmt`, and pushes via GH_AUTOFIX_TOKEN so the
 # resulting push retriggers CI (gofmt diff is one of CI's failure modes —
 # multica's CI runs `go build ./...` which doesn't fail on format alone, but
-# the future M2 code-review prompt instructs Claude to refuse style nits,
+# the OpenCode review prompt instructs the reviewer to refuse style nits,
 # meaning unformatted code becomes a noisy review distraction).
 #
 # Multica deltas vs Pulse source:
