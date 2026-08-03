@@ -87,6 +87,7 @@ vi.mock("@multica/core/api", () => ({
     updateIssue: vi.fn(),
     listMembers: () => Promise.resolve([]),
     listAgents: () => Promise.resolve([]),
+    listLabels: () => Promise.resolve([]),
   },
   getApi: () => ({
     listIssues: (...args: any[]) => mockListIssues(...args),
@@ -94,6 +95,7 @@ vi.mock("@multica/core/api", () => ({
     updateIssue: vi.fn(),
     listMembers: () => Promise.resolve([]),
     listAgents: () => Promise.resolve([]),
+    listLabels: () => Promise.resolve([]),
   }),
   setApiInstance: vi.fn(),
   BoardEndpointUnavailableError: MockBoardEndpointUnavailableError,
@@ -452,5 +454,25 @@ describe("IssuesPage (shared)", () => {
     await screen.findByText("All");
     expect(screen.getByText("Members")).toBeInTheDocument();
     expect(screen.getByText("Agents")).toBeInTheDocument();
+  });
+
+  it("shows quick label filters beside the scope buttons", async () => {
+    renderWithQuery(<IssuesPage />);
+
+    expect(await screen.findByRole("button", { name: "Labels" })).toBeInTheDocument();
+    expect(screen.getByRole("toolbar", { name: "Label filters" })).toBeInTheDocument();
+  });
+
+  it("keeps right controls fixed while left controls scroll on narrow screens", async () => {
+    renderWithQuery(<IssuesPage />);
+
+    await screen.findByRole("button", { name: "Labels" });
+    expect(screen.getByTestId("issues-header-left-controls")).toHaveClass(
+      "flex-1",
+      "overflow-x-auto",
+    );
+    expect(screen.getByTestId("issues-header-right-controls")).toHaveClass(
+      "shrink-0",
+    );
   });
 });
