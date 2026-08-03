@@ -65,6 +65,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import type { Issue } from "@multica/core/types";
 import { useT } from "../../i18n";
+import { LabelQuickFilters } from "./label-quick-filters";
 
 // ---------------------------------------------------------------------------
 // HoverCheck — shadcn official pattern (PR #6862)
@@ -455,6 +456,8 @@ function LabelSubContent({
 
 export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
   const { t } = useT("issues");
+  const wsId = useWorkspaceId();
+  const { data: labels = [] } = useQuery(labelListOptions(wsId));
   const scope = useIssuesScopeStore((s) => s.scope);
   const setScope = useIssuesScopeStore((s) => s.setScope);
 
@@ -515,9 +518,12 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
   };
 
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between px-4">
-      {/* Left: scope buttons */}
-      <div className="flex items-center gap-1">
+    <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4">
+      {/* Left: scope buttons and quick label filters */}
+      <div
+        data-testid="issues-header-left-controls"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+      >
         {SCOPE_VALUES.map((s) => (
           <Tooltip key={s}>
             <TooltipTrigger
@@ -539,10 +545,20 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
             <TooltipContent side="bottom">{t(($) => $.scope[SCOPE_DESC_KEY[s]])}</TooltipContent>
           </Tooltip>
         ))}
+        <div className="mx-1 h-5 w-px shrink-0 bg-border" />
+        <LabelQuickFilters
+          labels={labels}
+          selected={labelFilters}
+          onToggle={act.toggleLabelFilter}
+          onClear={() => labelFilters.forEach(act.toggleLabelFilter)}
+        />
       </div>
 
       {/* Right: filter + display + view toggle */}
-      <div className="flex items-center gap-1">
+      <div
+        data-testid="issues-header-right-controls"
+        className="flex shrink-0 items-center gap-1"
+      >
         {/* Filter */}
         <DropdownMenu>
           <Tooltip>
